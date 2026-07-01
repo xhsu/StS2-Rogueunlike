@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "StS2Mod": {
+      "commandName": "Project",
+      "workingDirectory": "E:\\SteamLibrary\\steamapps\\common\\Slay the Spire 2"
+    },
+    "Profile 1": {
+      "commandName": "Executable",
+      "executablePath": "E:\\SteamLibrary\\steamapps\\common\\Slay the Spire 2\\SlayTheSpire2.exe",
+      "workingDirectory": "E:\\SteamLibrary\\steamapps\\common\\Slay the Spire 2\\"
+    }
+  }
+}
