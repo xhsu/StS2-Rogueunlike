@@ -10,5 +10,5 @@
   "dependencies": [
     {"id": "BaseLib", "min_version": "3.3.2"}
   ],
-  "affects_gameplay": true
+  "affects_gameplay": false
 }

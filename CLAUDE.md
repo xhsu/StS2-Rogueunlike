@@ -38,3 +38,65 @@ This compiles the mod and auto-copies `StS2Mod.dll`, `StS2Mod.pdb`, and `StS2Mod
 - Use **HarmonyLib** (`[HarmonyPatch]`) to hook into game methods. Harmony is bundled with the game.
 - `.pck` export requires the MegaDot/Godot 4.5.1 mono editor. For code-only mods, set `has_pck: false` in the manifest.
 - To publish (with .pck): `dotnet publish` — requires `GodotPath` set in `Directory.Build.props`.
+- Game logs: `%APPDATA%\SlayTheSpire2\logs\godot.log`
+
+## Internet Research
+
+**Always search the internet** when working on this mod. The game is in Early Access — APIs change between updates, and community knowledge evolves fast. Use WebSearch/WebFetch for:
+- Looking up game classes/methods before writing Harmony patches
+- Checking for updated modding patterns or API changes
+- Finding example implementations in other mods
+- Verifying that approaches still work with the current game version
+
+## Modding Resources
+
+### Templates & Frameworks
+
+- **[Alchyr Mod Template](https://github.com/Alchyr/ModTemplate-StS2)** — NuGet template (`dotnet new install Alchyr.Sts2.Templates`) with empty, content, and character mod types
+- **[Template Wiki](https://github.com/Alchyr/ModTemplate-StS2/wiki)** — Setup, decompiling, extracting assets, adding cards/ancients, shaders, reflection, common commands cookbook
+- **[BaseLib](https://github.com/Alchyr/BaseLib-StS2)** — Standardizes content additions (cards, relics, potions); required dependency for template mods
+- **[BaseLib Wiki](https://alchyr.github.io/BaseLib-Wiki/)** — Features, utilities, dynamic variable tooltips, mod configuration
+- **[ModSmith](https://github.com/cpimhoff/Sts2-ModSmith)** — Alternative framework with guided setup for cards/potions/relics/powers/events/ancients
+- **[ModSmith Docs](https://cpimhoff.github.io/Sts2-ModSmith/)** — Includes decompilation guide and beginner walkthrough
+
+### Tutorials & Guides
+
+- **[Comprehensive Modding Tutorial](https://fresh-milkshake.github.io/Modding-Tutorial/)** — Full walkthrough: setup, mod loading, manifests, Harmony/hooks, content registration, .pck assets, native UI, debugging, packaging ([source](https://github.com/fresh-milkshake/Modding-Tutorial))
+- **[Wiki.gg Modding Tutorials](https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Modding_Tutorials)** — Community hub: recommended software, mod folder structure, mod.json, models, localization, assets, decompiling, Harmony, SpireField
+
+### Example Mods (reference implementations)
+
+- **[jiegec/STS2FirstMod](https://github.com/jiegec/STS2FirstMod)** — Beginner example with build/install scripts
+- **[lamali292/sts2_example_mod](https://github.com/lamali292/sts2_example_mod)** — Another starter example with Steam path config
+- **[erasels/Minty-Spire-2](https://github.com/erasels/Minty-Spire-2)** — QoL compilation mod, good reference for real-world Harmony patches
+- **[JaydenLiang/slay-the-spire-2-mods](https://github.com/JaydenLiang/slay-the-spire-2-mods)** — Collection of mods
+
+### Decompilation & Reverse Engineering
+
+- **[ILSpy](https://github.com/icsharpcode/ILSpy)** — Primary tool for decompiling `sts2.dll` (~3,300 C# source files)
+- **[ModSmith Decompilation Guide](https://cpimhoff.github.io/Sts2-ModSmith/docs/setup/decompile.html)** — Step-by-step using ILSpy/ilspycmd
+- **[spire-codex](https://github.com/ptrlrd/spire-codex)** — Project for decompiling StS2 into an API reference
+- **[Sts2Repairer](https://github.com/Yanxiyimengya/Sts2Repairer)** — CLI tool for fixing common decompilation artifacts
+
+### Harmony (Runtime Patching)
+
+- **[Harmony GitHub](https://github.com/pardeike/Harmony)** — The library bundled with StS2
+- **[Harmony Docs — Introduction](https://harmony.pardeike.net/articles/intro.html)**
+- **[Harmony Docs — Patching](https://harmony.pardeike.net/articles/patching.html)**
+- **[Harmony Docs — Basics](https://harmony.pardeike.net/articles/basics.html)**
+
+### Godot Engine (C#)
+
+- **[Godot 4.5 C#/.NET Docs](https://docs.godotengine.org/en/4.5/tutorials/scripting/c_sharp/)** — C# scripting for the exact engine version StS2 uses
+- **[Godot 4.5 C# Basics](https://docs.godotengine.org/en/4.5/tutorials/scripting/c_sharp/c_sharp_basics.html)**
+
+### AI-Assisted Tooling
+
+- **[STS2 Modding MCP](https://github.com/elliotttate/sts2-modding-mcp)** — MCP server with 153 tools for game data querying, mod code generation, building, deployment; works with Claude Code ([NexusMods](https://www.nexusmods.com/slaythespire2/mods/345))
+
+### Community
+
+- **[Slay the Spire Discord](https://discord.com/invite/slaythespire)** — #sts2-modding channel
+- **[NexusMods StS2](https://www.nexusmods.com/slaythespire2)** — Mod downloads and community
+- **[GitHub Topic](https://github.com/topics/slay-the-spire-2)** — All tagged StS2 repos
+- **[sts2.gg Mod Install Guide](https://sts2.gg/guides/how-to-install-mods)**
