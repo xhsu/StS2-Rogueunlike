@@ -1,6 +1,0 @@
-{
-  "STS2MOD.SELECT_POTION.label": "Select a Potion",
-  "STS2MOD.SELECT_POTION.tip": "Opens the Potion Lab so you can take any potion this reward could have rolled. Darkened potions cannot drop from this reward. Locked potions have not been unlocked yet.",
-  "STS2MOD.SELECT_RELIC.label": "Select a Relic",
-  "STS2MOD.SELECT_RELIC.tip": "Opens the Relic Collection so you can take any relic this reward could have rolled. Darkened relics cannot drop from this reward. Locked relics have not been unlocked yet."
-}

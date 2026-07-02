@@ -13,12 +13,13 @@ using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Potions;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.PotionLab;
+using MegaCrit.Sts2.Core.Saves;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace StS2Mod.StS2ModCode;
+namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
 /// "Select one potion" overlay: the compendium Potion Lab screen, repurposed as a picker.
@@ -52,6 +53,7 @@ public partial class ModPotionPickerUi : Control
     private PotionModel? _selectedModel;
     private Color _selectedOutlineOriginal;
     private readonly List<(NLabPotionHolder holder, NPotionLabCategory category, string text, bool pickable)> _searchEntries = new();
+    private readonly Dictionary<NLabPotionHolder, Tween> _unseenPulses = new(); // pickable & compendium-undiscovered
 
     /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
     public static Task<PotionModel?> Show(Node host, Player player)
@@ -85,6 +87,7 @@ public partial class ModPotionPickerUi : Control
     private void Build(Player player)
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        ModSeenGate.SuppressWhile(this); // browsing/hovering the roster must not "discover" it
 
         // In-run there is no compendium backdrop; supply one. It also swallows every
         // click aimed at the rewards screen underneath, which makes the picker modal.
@@ -217,6 +220,8 @@ public partial class ModPotionPickerUi : Control
                     if (ev is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
                         OnPotionClicked(holder, potion);
                 };
+                if (!SaveManager.Instance.Progress.DiscoveredPotions.Contains(potion.Id))
+                    _unseenPulses[holder] = ModUnseenFx.StartPulse(holder._potionNode.Outline, "self_modulate");
             }
             else
             {
@@ -287,6 +292,12 @@ public partial class ModPotionPickerUi : Control
         _selectedModel = potion;
         SetHighlight(holder, true);
         _confirm.Enable();
+        ModSeenGate.MarkPicked(potion); // candidacy is the reveal (see ModSeenGate)
+        if (_unseenPulses.Remove(holder, out Tween? pulse)) // discovered now — stop the "new" pulse
+        {
+            pulse.Kill();
+            holder._potionNode.Outline.SelfModulate = Colors.White;
+        }
     }
 
     // Gold outline marks the pending pick; restore the character-pool colour on deselect.

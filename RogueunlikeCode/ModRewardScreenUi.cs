@@ -14,10 +14,11 @@ using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardLibrary;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
+using MegaCrit.Sts2.Core.Saves;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace StS2Mod.StS2ModCode;
+namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
 /// The card-reward UI, rebuilt as a standalone class that supersedes the vanilla
@@ -70,6 +71,7 @@ public partial class ModRewardScreenUi : Control
     private readonly List<CardModel> _cards = new();          // pickable: the reward's actual loot
     private readonly List<CardModel> _extras = new();         // display-only: locked / out-of-context pool cards
     private readonly HashSet<CardModel> _pickable = new();
+    private readonly HashSet<CardModel> _unseen = new(); // pickable & compendium-undiscovered: sparkle
     private readonly Dictionary<CardModel, ModelVisibility> _visibility = new();
     private readonly Dictionary<CardModel, string> _searchText = new();
     private string _query = "";
@@ -89,6 +91,7 @@ public partial class ModRewardScreenUi : Control
         _screen = screen;
         Name = ViewName;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        ModSeenGate.SuppressWhile(this); // rendering the pool must not "discover" it
         _cards.Clear();
         _cards.AddRange(options.Select(o => o.Card));
 
@@ -113,8 +116,10 @@ public partial class ModRewardScreenUi : Control
                 _screen.InspectCard(h);
         }));
         _pickable.UnionWith(_cards);
+        _unseen.UnionWith(_cards.Where(c => !SaveManager.Instance.Progress.DiscoveredCards.Contains(c.Id)));
         BuildDisplayExtras();
         CardGridVisibilityPatch.Overrides.Add(_grid, _visibility);
+        CardGridSparklePatch.Sets.Add(_grid, _unseen);
         PopulateDeferred();
 
         this.AddChildSafely(_confirm); // self-anchors bottom-right, hidden until Enable()
@@ -188,6 +193,13 @@ public partial class ModRewardScreenUi : Control
         _grid.HighlightCard(card);
         _pending = card;
         _confirm.Enable();
+        ModSeenGate.MarkPicked(card); // candidacy is the reveal (see ModSeenGate)
+        if (_unseen.Remove(card)) // discovered now — stop advertising it as new
+        {
+            NCard? node = _grid.GetCardNode(card);
+            if (node != null)
+                node._sparkles.Visible = false;
+        }
     }
 
     private void OnConfirm(NButton _)

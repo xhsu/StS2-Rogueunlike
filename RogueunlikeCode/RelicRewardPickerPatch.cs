@@ -9,7 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace StS2Mod.StS2ModCode;
+namespace Rogueunlike.RogueunlikeCode;
 
 // Feature #3: a relic reward no longer grants its pre-rolled relic — the row reads
 // "Select a Relic" and clicking it opens a Relic Collection-style picker
@@ -27,7 +27,7 @@ public static class RelicRewardPicker
         && relicReward.Player.RunState.Players.Count == 1;
 
     public static string SelectRelicLabel =>
-        PotionRewardPicker.Loc("STS2MOD.SELECT_RELIC.label", "Select a Relic");
+        PotionRewardPicker.Loc("ROGUEUNLIKE.SELECT_RELIC.label", "Select a Relic");
 }
 
 // Replaces the take-flow: pick first, then run the vanilla claim with the picked relic.
@@ -111,9 +111,9 @@ public static class RelicRewardHoverTipPatch
         if (!RelicRewardPicker.IsActiveFor(__instance))
             return true;
         HoverTip tip = default;
-        tip.Id = "StS2Mod.SelectRelic";
+        tip.Id = "Rogueunlike.SelectRelic";
         tip.Title = RelicRewardPicker.SelectRelicLabel;
-        tip.Description = PotionRewardPicker.Loc("STS2MOD.SELECT_RELIC.tip",
+        tip.Description = PotionRewardPicker.Loc("ROGUEUNLIKE.SELECT_RELIC.tip",
             "Opens the Relic Collection so you can take any relic this reward could have rolled. "
             + "Darkened relics cannot drop from this reward. Locked relics have not been unlocked yet.");
         __result = new IHoverTip[] { tip };

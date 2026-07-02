@@ -11,7 +11,7 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Random;
 using MegaCrit.Sts2.Core.Runs;
 
-namespace StS2Mod.StS2ModCode;
+namespace Rogueunlike.RogueunlikeCode;
 
 // Replaces the pool ROLL of the real card reward with the whole valid pool, while keeping
 // every other stage of the vanilla per-card pipeline so reward-modifying effects extend

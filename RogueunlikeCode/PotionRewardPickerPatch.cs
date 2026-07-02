@@ -11,7 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace StS2Mod.StS2ModCode;
+namespace Rogueunlike.RogueunlikeCode;
 
 // Feature #2: a potion reward no longer grants its pre-rolled potion — the row reads
 // "Select a Potion" and clicking it opens a Potion Lab-style picker (ModPotionPickerUi)
@@ -29,13 +29,13 @@ public static class PotionRewardPicker
         && potionReward.Player.RunState.Players.Count == 1;
 
     // Mod keys are merged into the vanilla "gameplay_ui" table when the .pck ships them
-    // (StS2Mod/localization/{lang}/gameplay_ui.json); without the .pck we fall back to
+    // (Rogueunlike/localization/{lang}/gameplay_ui.json); without the .pck we fall back to
     // English so the feature keeps working.
     public static string Loc(string key, string fallback) =>
         LocString.GetIfExists("gameplay_ui", key)?.GetFormattedText() ?? fallback;
 
     public static string SelectPotionLabel =>
-        Loc("STS2MOD.SELECT_POTION.label", "Select a Potion");
+        Loc("ROGUEUNLIKE.SELECT_POTION.label", "Select a Potion");
 }
 
 // Replaces the take-flow: pick first, then run the vanilla claim with the picked potion.
@@ -115,9 +115,9 @@ public static class PotionRewardHoverTipPatch
         if (!PotionRewardPicker.IsActiveFor(__instance))
             return true;
         HoverTip tip = default;
-        tip.Id = "StS2Mod.SelectPotion";
+        tip.Id = "Rogueunlike.SelectPotion";
         tip.Title = PotionRewardPicker.SelectPotionLabel;
-        tip.Description = PotionRewardPicker.Loc("STS2MOD.SELECT_POTION.tip",
+        tip.Description = PotionRewardPicker.Loc("ROGUEUNLIKE.SELECT_POTION.tip",
             "Opens the Potion Lab so you can take any potion this reward could have rolled. "
             + "Darkened potions cannot drop from this reward. Locked potions have not been unlocked yet.");
         __result = new IHoverTip[] { tip };

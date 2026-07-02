@@ -17,19 +17,19 @@ A C# mod for **Slay the Spire 2** (Steam, legal copy). The game runs on **Godot 
 ## Build
 
 ```
-dotnet build StS2Mod.csproj
+dotnet build Rogueunlike.csproj
 ```
 
-This compiles the mod and auto-copies `StS2Mod.dll`, `StS2Mod.pdb`, and `StS2Mod.json` to the game's `mods/StS2Mod/` folder via the `CopyToModsFolderOnBuild` MSBuild target. No manual copy step needed.
+This compiles the mod and auto-copies `Rogueunlike.dll`, `Rogueunlike.pdb`, and `Rogueunlike.json` to the game's `mods/Rogueunlike/` folder via the `CopyToModsFolderOnBuild` MSBuild target. No manual copy step needed.
 
 ## Architecture
 
-- **`StS2ModCode/MainFile.cs`** — Mod entry point. The `[ModInitializer]` attribute (from `MegaCrit.Sts2.Core.Modding`) marks the static method the game calls on load. Harmony is initialized here for runtime patching.
-- **`StS2Mod.json`** — Mod manifest (id, version, dependencies). The build auto-updates the BaseLib version in this file.
-- **`StS2Mod.csproj`** — Uses `Godot.NET.Sdk/4.5.1`. References `sts2.dll` and `0Harmony.dll` from the game data directory.
+- **`RogueunlikeCode/MainFile.cs`** — Mod entry point. The `[ModInitializer]` attribute (from `MegaCrit.Sts2.Core.Modding`) marks the static method the game calls on load. Harmony is initialized here for runtime patching.
+- **`Rogueunlike.json`** — Mod manifest (id, version, dependencies). The build auto-updates the BaseLib version in this file.
+- **`Rogueunlike.csproj`** — Uses `Godot.NET.Sdk/4.5.1`. References `sts2.dll` and `0Harmony.dll` from the game data directory.
 - **`Sts2PathDiscovery.props`** — MSBuild props that auto-detect the game install path via registry/Steam paths.
 - **`Directory.Build.props`** — Local overrides (git-ignored). Set `Sts2Path` or `GodotPath` here if auto-detection fails.
-- **`StS2Mod/`** — Godot resource folder (assets, scenes, localization). Contents go into the `.pck` file on publish.
+- **`Rogueunlike/`** — Godot resource folder (assets, scenes, localization). Contents go into the `.pck` file on publish.
 - **`project.godot` / `export_presets.cfg`** — Godot project files needed for `.pck` export.
 
 ## Modding Conventions

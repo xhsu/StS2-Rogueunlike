@@ -13,12 +13,13 @@ using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.RelicCollection;
 using MegaCrit.Sts2.Core.Rewards;
+using MegaCrit.Sts2.Core.Saves;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace StS2Mod.StS2ModCode;
+namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
 /// "Select a relic" overlay: the compendium Relic Collection screen, repurposed as a
@@ -55,6 +56,7 @@ public partial class ModRelicPickerUi : Control
     private RelicModel? _selectedModel;
     private Color _selectedOutlineOriginal;
     private readonly List<(NRelicCollectionEntry entry, NRelicCollectionCategory[] cats, string text, bool pickable)> _searchEntries = new();
+    private readonly Dictionary<NRelicCollectionEntry, Tween> _unseenPulses = new(); // pickable & compendium-undiscovered
 
     /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
     public static Task<RelicModel?> Show(Node host, Player player, RelicReward reward)
@@ -88,6 +90,7 @@ public partial class ModRelicPickerUi : Control
     private void Build(Player player, RelicReward reward)
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        ModSeenGate.SuppressWhile(this); // browsing/hovering the roster must not "discover" it
 
         // In-run there is no compendium backdrop; supply one. It also swallows every
         // click aimed at the rewards screen underneath, which makes the picker modal.
@@ -224,9 +227,10 @@ public partial class ModRelicPickerUi : Control
             bool pickable = !locked && valid.Contains(entry.relic.CanonicalInstance);
             RecordSearchText(entry, pickable);
 
-            // The entry scene's cursor is the compendium's inspect magnifier; here a
-            // click selects, so show a hand on pickable entries and nothing special else.
-            entry.MouseDefaultCursorShape = pickable ? CursorShape.PointingHand : CursorShape.Arrow;
+            // The entry scene's authored cursor is the compendium's inspect magnifier;
+            // here a click selects, so keep the plain StS2 arrow (an OS pointing hand
+            // would be alien — the card and potion pickers don't change the cursor either).
+            entry.MouseDefaultCursorShape = CursorShape.Arrow;
 
             if (locked)
                 continue; // vanilla lock icon + "locked" hover tip; not selectable
@@ -236,6 +240,9 @@ public partial class ModRelicPickerUi : Control
                 NRelicCollectionEntry captured = entry;
                 entry.Connect(NClickableControl.SignalName.Released,
                     Callable.From<NButton>(_ => OnRelicClicked(captured)));
+                if (entry._relicNode is NRelic pulseNode
+                    && !SaveManager.Instance.Progress.DiscoveredRelics.Contains(entry.relic.Id))
+                    _unseenPulses[entry] = ModUnseenFx.StartPulse(pulseNode.Outline, "modulate");
             }
             else if (entry._relicNode is NRelic relicNode)
             {
@@ -309,6 +316,12 @@ public partial class ModRelicPickerUi : Control
         _selectedModel = entry.relic.CanonicalInstance;
         SetHighlight(entry, true);
         _confirm.Enable();
+        ModSeenGate.MarkPicked(entry.relic.CanonicalInstance); // candidacy is the reveal (see ModSeenGate)
+        if (_unseenPulses.Remove(entry, out Tween? pulse) && entry._relicNode is NRelic pulseNode)
+        {
+            pulse.Kill(); // discovered now — stop the "new" pulse
+            pulseNode.Outline.Modulate = Colors.White;
+        }
     }
 
     // Gold outline marks the pending pick; restore the character-pool colour on deselect.

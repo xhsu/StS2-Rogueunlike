@@ -1,0 +1,6 @@
+{
+  "ROGUEUNLIKE.SELECT_POTION.label": "Select a Potion",
+  "ROGUEUNLIKE.SELECT_POTION.tip": "Opens the Potion Lab so you can take any potion this reward could have rolled. Darkened potions cannot drop from this reward. Locked potions have not been unlocked yet.",
+  "ROGUEUNLIKE.SELECT_RELIC.label": "Select a Relic",
+  "ROGUEUNLIKE.SELECT_RELIC.tip": "Opens the Relic Collection so you can take any relic this reward could have rolled. Darkened relics cannot drop from this reward. Locked relics have not been unlocked yet."
+}

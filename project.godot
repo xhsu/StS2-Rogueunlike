@@ -10,9 +10,9 @@ config_version=5
 
 [application]
 
-config/name="StS2Mod"
+config/name="Rogueunlike"
 config/features=PackedStringArray("4.5", "C#", "Mobile")
-config/icon="res://StS2Mod/mod_image.png"
+config/icon="res://Rogueunlike/mod_image.png"
 
 [display]
 
@@ -24,7 +24,7 @@ window/stretch/aspect="expand"
 
 [dotnet]
 
-project/assembly_name="StS2Mod"
+project/assembly_name="Rogueunlike"
 
 [rendering]
 

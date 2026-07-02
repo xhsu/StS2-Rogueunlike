@@ -11,7 +11,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Godot;
 
-namespace StS2Mod.StS2ModCode;
+namespace Rogueunlike.RogueunlikeCode;
 
 // Thin Harmony seam that hands the reward screen's body over to ModRewardScreenUi. The game
 // exposes no hook to replace the reward screen, so these two patches are the irreducible
@@ -67,6 +67,43 @@ public static class CardGridVisibilityPatch
         if (Overrides.TryGetValue(__instance, out Dictionary<CardModel, ModelVisibility>? map)
             && map.TryGetValue(card, out ModelVisibility visibility))
             __result = visibility;
+    }
+}
+
+// Unseen-pickable cards sparkle: NCard's own reward sparkle particles (_sparkles, the
+// bits vanilla shows over rare reward cards) flag compendium-new cards at a glance.
+// NCard resets the node whenever a holder is (re)assigned and the grid recycles holders
+// while scrolling, so — exactly like NCardLibraryGrid re-applies its per-holder state —
+// re-apply after InitGrid (creation) and after every AssignCardsToRow (scroll recycle).
+// Registered per grid, same lifetime story as CardGridVisibilityPatch above.
+[HarmonyPatch(typeof(NCardGrid))]
+public static class CardGridSparklePatch
+{
+    public static readonly ConditionalWeakTable<NCardGrid, HashSet<CardModel>> Sets = new();
+
+    // NB: explicit empty args — NCardGrid also has "private async Task InitGrid(Task?)",
+    // and a name-only patch dies with AmbiguousMatchException at mod init.
+    [HarmonyPostfix, HarmonyPatch("InitGrid", new System.Type[0])]
+    static void AfterInit(NCardGrid __instance)
+    {
+        if (!Sets.TryGetValue(__instance, out HashSet<CardModel>? sparkling))
+            return;
+        foreach (List<NGridCardHolder> row in __instance._cardRows)
+            Apply(row, sparkling);
+    }
+
+    [HarmonyPostfix, HarmonyPatch("AssignCardsToRow")]
+    static void AfterAssign(NCardGrid __instance, List<NGridCardHolder> row)
+    {
+        if (Sets.TryGetValue(__instance, out HashSet<CardModel>? sparkling))
+            Apply(row, sparkling);
+    }
+
+    private static void Apply(List<NGridCardHolder> row, HashSet<CardModel> sparkling)
+    {
+        foreach (NGridCardHolder holder in row)
+            if (holder.CardNode is NCard node && node.Model is CardModel card)
+                node._sparkles.Visible = sparkling.Contains(card);
     }
 }
 

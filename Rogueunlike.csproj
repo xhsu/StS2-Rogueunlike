@@ -38,15 +38,15 @@
         <PackageReference Include="Alchyr.Sts2.ModAnalyzers" Version="*" />
         <!-- Generates a .pck file when building if only using simple assets (we only pack localization JSONs). -->
         <PackageReference Include="BSchneppe.StS2.PckPacker" Version="0.1.1" PrivateAssets="All" />
-        <AdditionalFiles Include="StS2Mod/localization/**/*.json"/> <!-- Used by analyzer -->
+        <AdditionalFiles Include="Rogueunlike/localization/**/*.json"/> <!-- Used by analyzer -->
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Remove="StS2Mod/**" />
+        <Compile Remove="Rogueunlike/**" />
         <Compile Remove="materials/**" />
         <Compile Remove="shaders/**" />
         <Compile Remove="images/**" />
-        <EmbeddedResource Remove="StS2Mod/**" />
+        <EmbeddedResource Remove="Rogueunlike/**" />
         <EmbeddedResource Remove="materials/**" />
         <EmbeddedResource Remove="shaders/**" />
         <EmbeddedResource Remove="images/**" />
@@ -55,9 +55,9 @@
     <ItemGroup>
         <None Condition="Exists('Directory.Build.props')" Include="Directory.Build.props"/>
         <None Include=".gitignore" />
-        <None Include="StS2Mod.json" />
+        <None Include="Rogueunlike.json" />
         <None Include="project.godot"/>
-        <None Include="StS2Mod/**" />
+        <None Include="Rogueunlike/**" />
     </ItemGroup>
     
     <Target Name="CheckDependencyPaths" >
