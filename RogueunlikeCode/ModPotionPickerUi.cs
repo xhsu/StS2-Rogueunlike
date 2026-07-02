@@ -11,6 +11,7 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Potions;
+using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.PotionLab;
 using MegaCrit.Sts2.Core.Saves;
@@ -55,12 +56,23 @@ public partial class ModPotionPickerUi : Control
     private readonly List<(NLabPotionHolder holder, NPotionLabCategory category, string text, bool pickable)> _searchEntries = new();
     private readonly Dictionary<NLabPotionHolder, TextureRect> _unseenStars = new(); // pickable & compendium-undiscovered
 
+    /// <summary>Resolves with the confirmed potion; null = cancelled (or torn down).</summary>
+    public Task<PotionModel?> Result => _tcs.Task;
+
     /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
-    public static Task<PotionModel?> Show(Node host, Player player)
+    public static Task<PotionModel?> Show(Node host, Player player) =>
+        Attach(host, player, PotionFactory
+            .GetPotionOptions(player, Array.Empty<PotionModel>())
+            .ToHashSet()).Result;
+
+    /// <summary>
+    /// Shows the picker with an explicit pickable set (the merchant path). Attaches to
+    /// the enclosing rewards screen / merchant room so it covers it and dies with it.
+    /// </summary>
+    public static ModPotionPickerUi Attach(Node host, Player player, HashSet<PotionModel> valid)
     {
-        // Attach to the rewards screen so the picker covers it and dies with it.
         Node? attach = host;
-        while (attach != null && attach is not NRewardsScreen)
+        while (attach != null && attach is not NRewardsScreen && attach is not NMerchantRoom)
             attach = attach.GetParent();
         attach ??= host.GetTree().Root;
 
@@ -68,14 +80,14 @@ public partial class ModPotionPickerUi : Control
         attach.AddChildSafely(ui);
         try
         {
-            ui.Build(player);
+            ui.Build(player, valid);
         }
         catch
         {
             ui.QueueFreeSafely();
             throw;
         }
-        return ui._tcs.Task;
+        return ui;
     }
 
     // Also covers the rewards screen being torn down around us: resolve as "cancelled".
@@ -84,7 +96,7 @@ public partial class ModPotionPickerUi : Control
         _tcs.TrySetResult(null);
     }
 
-    private void Build(Player player)
+    private void Build(Player player, HashSet<PotionModel> valid)
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         ModSeenGate.SuppressWhile(this); // browsing/hovering the roster must not "discover" it
@@ -110,10 +122,7 @@ public partial class ModPotionPickerUi : Control
         back.MoveToHidePosition();
         back.Enable();
 
-        // What the reward could actually roll, and what the player has unlocked at all.
-        HashSet<PotionModel> valid = PotionFactory
-            .GetPotionOptions(player, Array.Empty<PotionModel>())
-            .ToHashSet();
+        // What this source could actually roll (passed in), and what's unlocked at all.
         HashSet<PotionModel> unlocked = player.UnlockState.Potions.ToHashSet();
 
         Fill(lab._common, "COMMON",

@@ -19,6 +19,7 @@ internal static class ModSeenGate
 {
     private static readonly List<CanvasItem> _anchors = new();
     private static bool _bypass;
+    private static int _manualSuppressions;
 
     /// <summary>Suppress discovery while <paramref name="anchor"/> is alive and visible on screen.</summary>
     public static void SuppressWhile(CanvasItem anchor)
@@ -27,10 +28,17 @@ internal static class ModSeenGate
         _anchors.Add(anchor);
     }
 
+    // Manual scope for suppression windows with no UI anchor to hang off — e.g. merchant
+    // stocking, which marks its rolls seen before the shop screen even exists. Pair Push
+    // with Pop in a Harmony finalizer so an exception can't leave discovery muted.
+    public static void PushSuppression() => _manualSuppressions++;
+    public static void PopSuppression() => _manualSuppressions = System.Math.Max(0, _manualSuppressions - 1);
+
     // Visibility, not just liveness: if a selection screen is pooled/hidden instead of
     // freed, a stale anchor must not keep suppressing combat/deck-view discovery.
     public static bool Suppressing =>
-        !_bypass && _anchors.Exists(n => GodotObject.IsInstanceValid(n) && n.IsVisibleInTree());
+        !_bypass && (_manualSuppressions > 0
+            || _anchors.Exists(n => GodotObject.IsInstanceValid(n) && n.IsVisibleInTree()));
 
     public static void MarkPicked(CardModel card) => Bypass(() => SaveManager.Instance.MarkCardAsSeen(card));
     public static void MarkPicked(RelicModel relic) => Bypass(() => SaveManager.Instance.MarkRelicAsSeen(relic));

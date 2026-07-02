@@ -68,13 +68,15 @@ public partial class ModRelicPickerUi : Control
         Attach(host, player, ValidDrops(player, reward)).Result;
 
     /// <summary>
-    /// Shows the picker with an explicit pickable set (the treasure chest path). Attaches
-    /// to the enclosing rewards screen / treasure room so it covers it and dies with it.
+    /// Shows the picker with an explicit pickable set (treasure chest / merchant paths).
+    /// Attaches to the enclosing rewards screen / treasure room / merchant room so it
+    /// covers it and dies with it.
     /// </summary>
     public static ModRelicPickerUi Attach(Node host, Player player, HashSet<RelicModel> valid)
     {
         Node? attach = host;
-        while (attach != null && attach is not NRewardsScreen && attach is not NTreasureRoom)
+        while (attach != null && attach is not NRewardsScreen && attach is not NTreasureRoom
+               && attach is not NMerchantRoom)
             attach = attach.GetParent();
         attach ??= host.GetTree().Root;
 
