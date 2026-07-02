@@ -25,8 +25,9 @@ namespace StS2Mod.StS2ModCode;
 ///   • scrollable <see cref="NCardGrid"/> + checkmark <see cref="NConfirmButton"/>
 ///     (from the simple-card-select scene),
 ///   • the deck-view chrome (from the deck-view scene): the styled sort bar of
-///     <see cref="NCardViewSortButton"/>s, the "View Upgrades" <see cref="NTickbox"/>,
-///     the bottom banner label, and the back button (rewired as Skip).
+///     <see cref="NCardViewSortButton"/>s (grafted into the grid's ScrollContainer so it
+///     scrolls away with the cards, exactly as in NDeckViewScreen), the "View Upgrades"
+///     <see cref="NTickbox"/>, the bottom banner label, and the back button (rewired as Skip).
 ///
 /// Behaviour: click a card to HIGHLIGHT it (not take it); the checkmark commits it.
 /// The vanilla screen is kept only as the overlay + completion shell.
@@ -45,9 +46,10 @@ public partial class ModRewardScreenUi : Control
     private const int GridTopOffset = 100;
 
     // ponytail: the relic HUD (a 68px HFlowContainer row, per NRelicInventory) sits top-left.
-    // Deck view hides it behind an opaque capstone backstop; we have none, so the live relics
-    // clip the leftmost sort button. Drop the sort bar + grid below one relic row instead of
-    // hiding relics (you want to see them while picking). Bump if you carry 2+ relic rows.
+    // Deck view hides it behind an opaque capstone backstop; we have none, so drop the cards
+    // below one relic row instead of hiding relics (you want to see them while picking).
+    // The sort bar itself rests at y≈172 (grid inset 80 + authored 92), already clear of the
+    // relic row, and scrolls up through it like the cards do. Bump if you carry 2+ relic rows.
     private const int SortBarDrop = 80;
 
     private NCardRewardSelectionScreen _screen = null!;
@@ -163,22 +165,27 @@ public partial class ModRewardScreenUi : Control
 
     // ---- deck-view chrome ----
 
+    // In the deck-view scene the bar ("SortingOptions": SortingBg + four sort buttons) is a
+    // child of the grid's ScrollContainer — the node NCardGrid slides to scroll. That is the
+    // whole vanilla mechanism for the bar scrolling away with the cards. Recreate it: graft
+    // SortingOptions into OUR grid's ScrollContainer (InitGrid only frees its own card
+    // holders, so the graft survives re-sorts). The donor grid — including its BorderGradient
+    // screen-edge fade, which our grid already duplicates — is discarded with the donor scene.
     private void BuildSortBar(Node deck, ShaderMaterial? frame)
     {
         Control? bg = deck.FindChild("SortingBg", recursive: true, owned: false) as Control;
-        Node? bar = AncestorUnder(deck, bg);
-        if (bar == null)
+        Node? options = bg?.GetParent(); // "SortingOptions"
+        if (bg == null || options == null
+            || _grid.FindChild("ScrollContainer", recursive: true, owned: false) is not Control scroller)
             return;
         var sorters = new List<NCardViewSortButton>();
-        Collect(bar, sorters);
+        Collect(options, sorters);
         if (sorters.Count < 4)
             return;
 
-        Adopt(bar);
-        if (bar is Control barCtrl) // shift down so the relic HUD no longer clips the left button
-            barCtrl.Position += new Vector2(0, SortBarDrop);
-        MakeClickThrough(bar); // don't let the bar's backdrop/containers eat grid clicks + scroll
-        if (frame != null && bg != null)
+        options.GetParent().RemoveChild(options);
+        scroller.AddChildSafely(options); // keeps its authored top-wide anchors within the container
+        if (frame != null)
             bg.Material = frame;
 
         WireSort(sorters[0], Loc("SORT_RARITY"), SortingOrders.RarityAscending, SortingOrders.RarityDescending, frame);
