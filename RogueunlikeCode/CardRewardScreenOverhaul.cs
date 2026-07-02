@@ -20,18 +20,28 @@ namespace Rogueunlike.RogueunlikeCode;
 [HarmonyPatch(typeof(NCardRewardSelectionScreen), nameof(NCardRewardSelectionScreen.RefreshOptions))]
 public static class CardRewardScreenOverhaul
 {
+    // With this few candidates the vanilla fan layout reads better than a grid with
+    // search/sort chrome — hand the screen back to vanilla untouched.
+    public const int VanillaUiMaxOptions = 5;
+
     static bool Prefix(NCardRewardSelectionScreen __instance,
         IReadOnlyList<CardCreationResult> options,
         IReadOnlyList<CardRewardAlternative> extraOptions)
     {
-        __instance._options = options;
-        __instance._extraOptions = extraOptions;
-
         Control ui = __instance._ui;
 
         // Drop any previous view (first show is clean; reroll re-enters here).
         Node? old = ui.GetNodeOrNull(ModRewardScreenUi.ViewName);
         if (old != null) { old.Name = "ModRewardScreenUiDead"; old.QueueFreeSafely(); }
+
+        if (options.Count <= VanillaUiMaxOptions)
+        {
+            __instance._banner.Visible = true; // Build() hides it; restore across a reroll
+            return true;
+        }
+
+        __instance._options = options;
+        __instance._extraOptions = extraOptions;
 
         var view = new ModRewardScreenUi();
         ui.AddChildSafely(view);
@@ -116,17 +126,20 @@ public static class CardGridSparklePatch
     }
 }
 
-// GetCardHolder feeds the fly-to-deck VFX after a pick. Vanilla does _cardRow.First(...),
-// which throws now that the row is empty. Return the grid's holder (null-safe) instead: a
-// real holder => vanilla VFX + deck-count update run unchanged; null => the driver just
-// skips the animation.
+// GetCardHolder feeds the fly-to-deck VFX after a pick. When the mod grid is live,
+// vanilla's _cardRow.First(...) would throw (the row was never populated), so return the
+// grid's holder instead: a real holder => vanilla VFX + deck-count update run unchanged;
+// null => the driver just skips the animation. No grid (small-pool vanilla fallback) =>
+// the vanilla row lookup is valid — let it run.
 [HarmonyPatch(typeof(NCardRewardSelectionScreen), nameof(NCardRewardSelectionScreen.GetCardHolder))]
 public static class CardRewardGetHolderPatch
 {
     static bool Prefix(NCardRewardSelectionScreen __instance, CardModel card, ref NCardHolder? __result)
     {
         NCardGrid? grid = __instance._ui?.FindChild(ModRewardScreenUi.GridName, recursive: true, owned: false) as NCardGrid;
-        __result = grid?.GetCardHolder(card);
+        if (grid == null)
+            return true;
+        __result = grid.GetCardHolder(card);
         return false;
     }
 }
