@@ -44,24 +44,52 @@ internal static class ModSeenGate
     }
 }
 
-// The counterpart QoL to click-to-discover: compendium-new items are worth spotting, so
-// pickable-but-undiscovered icons breathe white→gold on their outline (cards use the
-// reward screen's own sparkle particles instead; see CardGridSparklePatch). The pulse
-// rides the outline channel the picker does NOT use for selection/darkening — potions
-// pulse SelfModulate (selection sets Modulate), relics pulse Modulate (selection sets
-// SelfModulate) — so the effects multiply instead of fighting. The tween is bound to the
-// outline node and dies with it; callers keep the handle only to stop the pulse early
-// when a candidate-click discovers the item.
+// The counterpart QoL to click-to-discover: compendium-new pickables carry a small
+// static star pinned to the icon's top-right corner — the game's own star sprite, the
+// one card/relic text embeds for star costs, so the art language matches. (Cards keep
+// the reward screen's sparkle particles instead; see CardGridSparklePatch.) Pinned by
+// anchors so it follows the icon through layout and hover scaling, appended last so it
+// draws above icon and outline. Callers keep the node handle and free it when a
+// candidate-click discovers the item. This replaced an earlier modulate pulse: relic
+// and potion outline/modulate channels render far too inconsistently to read.
 internal static class ModUnseenFx
 {
-    public static Tween StartPulse(CanvasItem outline, NodePath property)
+    private const string StarTexturePath = "res://images/packed/sprite_fonts/star_icon.png";
+    private const float StarSize = 26f; // ponytail: corner badge size; tune by eye
+
+    public static TextureRect? AddStar(Control host)
     {
-        Tween tween = outline.CreateTween().SetLoops();
-        tween.TweenProperty(outline, property, StsColors.gold, 0.7)
-            .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
-        tween.TweenProperty(outline, property, Colors.White, 0.7)
-            .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
-        return tween;
+        Texture2D? texture;
+        try
+        {
+            texture = ResourceLoader.Load<Texture2D>(StarTexturePath);
+        }
+        catch (System.Exception e)
+        {
+            MainFile.Logger.Error($"[unseen star] texture load failed, no badge: {e}");
+            return null;
+        }
+        if (texture == null)
+            return null;
+        var star = new TextureRect
+        {
+            Name = "ModUnseenStar",
+            Texture = texture,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        host.AddChildSafely(star);
+        // Pin to the host's top-right corner (slight overhang), whatever its size is.
+        star.AnchorLeft = 1f;
+        star.AnchorRight = 1f;
+        star.AnchorTop = 0f;
+        star.AnchorBottom = 0f;
+        star.OffsetLeft = -StarSize * 0.7f;
+        star.OffsetRight = StarSize * 0.3f;
+        star.OffsetTop = -StarSize * 0.3f;
+        star.OffsetBottom = StarSize * 0.7f;
+        return star;
     }
 }
 

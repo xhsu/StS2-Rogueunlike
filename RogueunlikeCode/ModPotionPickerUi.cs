@@ -53,7 +53,7 @@ public partial class ModPotionPickerUi : Control
     private PotionModel? _selectedModel;
     private Color _selectedOutlineOriginal;
     private readonly List<(NLabPotionHolder holder, NPotionLabCategory category, string text, bool pickable)> _searchEntries = new();
-    private readonly Dictionary<NLabPotionHolder, Tween> _unseenPulses = new(); // pickable & compendium-undiscovered
+    private readonly Dictionary<NLabPotionHolder, TextureRect> _unseenStars = new(); // pickable & compendium-undiscovered
 
     /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
     public static Task<PotionModel?> Show(Node host, Player player)
@@ -220,8 +220,9 @@ public partial class ModPotionPickerUi : Control
                     if (ev is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
                         OnPotionClicked(holder, potion);
                 };
-                if (!SaveManager.Instance.Progress.DiscoveredPotions.Contains(potion.Id))
-                    _unseenPulses[holder] = ModUnseenFx.StartPulse(holder._potionNode.Outline, "self_modulate");
+                if (!SaveManager.Instance.Progress.DiscoveredPotions.Contains(potion.Id)
+                    && ModUnseenFx.AddStar(holder._potionNode) is TextureRect star)
+                    _unseenStars[holder] = star;
             }
             else
             {
@@ -293,11 +294,8 @@ public partial class ModPotionPickerUi : Control
         SetHighlight(holder, true);
         _confirm.Enable();
         ModSeenGate.MarkPicked(potion); // candidacy is the reveal (see ModSeenGate)
-        if (_unseenPulses.Remove(holder, out Tween? pulse)) // discovered now — stop the "new" pulse
-        {
-            pulse.Kill();
-            holder._potionNode.Outline.SelfModulate = Colors.White;
-        }
+        if (_unseenStars.Remove(holder, out TextureRect? star)) // discovered now — drop the "new" badge
+            star.QueueFreeSafely();
     }
 
     // Gold outline marks the pending pick; restore the character-pool colour on deselect.

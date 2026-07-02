@@ -58,7 +58,7 @@ public partial class ModRelicPickerUi : Control
     private RelicModel? _selectedModel;
     private Color _selectedOutlineOriginal;
     private readonly List<(NRelicCollectionEntry entry, NRelicCollectionCategory[] cats, string text, bool pickable)> _searchEntries = new();
-    private readonly Dictionary<NRelicCollectionEntry, Tween> _unseenPulses = new(); // pickable & compendium-undiscovered
+    private readonly Dictionary<NRelicCollectionEntry, TextureRect> _unseenStars = new(); // pickable & compendium-undiscovered
 
     /// <summary>Resolves with the confirmed relic; null = cancelled (or torn down).</summary>
     public Task<RelicModel?> Result => _tcs.Task;
@@ -250,9 +250,10 @@ public partial class ModRelicPickerUi : Control
                 NRelicCollectionEntry captured = entry;
                 entry.Connect(NClickableControl.SignalName.Released,
                     Callable.From<NButton>(_ => OnRelicClicked(captured)));
-                if (entry._relicNode is NRelic pulseNode
-                    && !SaveManager.Instance.Progress.DiscoveredRelics.Contains(entry.relic.Id))
-                    _unseenPulses[entry] = ModUnseenFx.StartPulse(pulseNode.Outline, "modulate");
+                if (entry._relicNode is NRelic relicNode
+                    && !SaveManager.Instance.Progress.DiscoveredRelics.Contains(entry.relic.Id)
+                    && ModUnseenFx.AddStar(relicNode) is TextureRect star)
+                    _unseenStars[entry] = star;
             }
             else if (entry._relicNode is NRelic relicNode)
             {
@@ -327,11 +328,8 @@ public partial class ModRelicPickerUi : Control
         SetHighlight(entry, true);
         _confirm.Enable();
         ModSeenGate.MarkPicked(entry.relic.CanonicalInstance); // candidacy is the reveal (see ModSeenGate)
-        if (_unseenPulses.Remove(entry, out Tween? pulse) && entry._relicNode is NRelic pulseNode)
-        {
-            pulse.Kill(); // discovered now — stop the "new" pulse
-            pulseNode.Outline.Modulate = Colors.White;
-        }
+        if (_unseenStars.Remove(entry, out TextureRect? star))
+            star.QueueFreeSafely(); // discovered now — drop the "new" badge
     }
 
     // Gold outline marks the pending pick; restore the character-pool colour on deselect.
