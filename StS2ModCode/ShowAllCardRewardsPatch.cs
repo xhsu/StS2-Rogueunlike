@@ -25,6 +25,11 @@ namespace StS2Mod.StS2ModCode;
 // Gated on IsCardReward: only CardReward.Populate sets it. Relic/event internal rolls
 // (Lasting Candy's own 1-card pick, Sea Glass, Sealed Deck, Kaleidoscope...) stay vanilla.
 //
+// INVARIANT: __result must contain ONLY genuinely pickable loot — it becomes
+// CardReward._cards, which drives selection indices, multiplayer sync and run history.
+// Display-only entries (locked / out-of-context pool cards) are the UI's business:
+// ModRewardScreenUi.BuildDisplayExtras adds them at render time, never here.
+//
 // Crash root-cause note: the hook view must contain ALL rarities of the pool, not just
 // the displayable ones. Lasting Candy builds a custom pool of "Powers not yet offered"
 // and inherits the reward's non-Uniform rarity odds; if the leftovers collapse to a

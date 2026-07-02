@@ -26,12 +26,15 @@ namespace StS2Mod.StS2ModCode;
 /// headers, hover tips, character-pool outline colours, back ribbon — and shows the full
 /// potion roster in three states:
 ///   • pickable — a potion the reward could roll (<see cref="PotionFactory.GetPotionOptions"/>:
-///     character pool + shared pool, unlocked only); full colour, clickable;
+///     character pool + shared pool, unlocked only — potion rolls are stateless, so this
+///     IS the whole loot pool, undiscovered ones included); full colour, clickable;
 ///   • locked — progression unlock not reached; the lab's lock icon and "locked" hover
 ///     tip, not clickable (exactly as the vanilla lab renders it);
 ///   • not a valid loot — unlocked but outside this reward's pools (other characters'
 ///     potions, event-only potions); the lab's "not seen" darkening repurposed as a
 ///     "can't drop here" hint, real hover tips kept, not clickable.
+/// Rarity sections with nothing pickable at all are hidden — locked potions don't keep
+/// a section alive. The selection pool equals the loot pool, never more.
 /// Click a pickable potion to highlight it, checkmark to take it, back ribbon to cancel.
 /// </summary>
 public partial class ModPotionPickerUi : Control
@@ -48,7 +51,7 @@ public partial class ModPotionPickerUi : Control
     private NLabPotionHolder? _selected;
     private PotionModel? _selectedModel;
     private Color _selectedOutlineOriginal;
-    private readonly List<(NLabPotionHolder holder, NPotionLabCategory category, string text)> _searchEntries = new();
+    private readonly List<(NLabPotionHolder holder, NPotionLabCategory category, string text, bool pickable)> _searchEntries = new();
 
     /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
     public static Task<PotionModel?> Show(Node host, Player player)
@@ -123,6 +126,7 @@ public partial class ModPotionPickerUi : Control
             ModelDb.AllPotions.Where(p => p.Rarity is PotionRarity.Event or PotionRarity.Token),
             valid, unlocked);
 
+        RefreshCategoryVisibility(); // hide sections with nothing pickable
         lab._screenContents.InstantlyScrollToTop();
 
         // Checkmark confirm button, borrowed from the simple-card-select scene (as feature #1).
@@ -198,14 +202,15 @@ public partial class ModPotionPickerUi : Control
         foreach (PotionModel potion in shared.Concat(charGrouped))
         {
             bool isLocked = !unlocked.Contains(potion);
+            bool pickable = !isLocked && valid.Contains(potion);
             PotionModel mutable = potion.ToMutable();
             NLabPotionHolder holder = NLabPotionHolder.Create(mutable,
                 isLocked ? ModelVisibility.Locked : ModelVisibility.Visible);
             category._potionContainer.AddChildSafely(holder);
-            RecordSearchText(holder, category, mutable);
+            RecordSearchText(holder, category, mutable, pickable);
             if (isLocked)
                 continue; // vanilla lock icon + "locked" hover tip; not selectable
-            if (valid.Contains(potion))
+            if (pickable)
             {
                 holder.GuiInput += ev =>
                 {
@@ -227,7 +232,7 @@ public partial class ModPotionPickerUi : Control
 
     // Title + hover-tip text, canonicalised once (library-style matching), so queries
     // hit both names ("fire") and effect text ("draw", "strength").
-    private void RecordSearchText(NLabPotionHolder holder, NPotionLabCategory category, PotionModel potion)
+    private void RecordSearchText(NLabPotionHolder holder, NPotionLabCategory category, PotionModel potion, bool pickable)
     {
         string text = potion.Title.GetFormattedText();
         try
@@ -240,17 +245,24 @@ public partial class ModPotionPickerUi : Control
         {
             // some tips need combat context to format; title-only is fine then
         }
-        _searchEntries.Add((holder, category, ModSearch.Canon(text)));
+        _searchEntries.Add((holder, category, ModSearch.Canon(text), pickable));
+    }
+
+    // A section earns its place only through a visible pickable potion — all-darkened
+    // and all-locked sections are pure noise in a picker.
+    private void RefreshCategoryVisibility()
+    {
+        foreach (NPotionLabCategory category in _searchEntries.Select(e => e.category).Distinct())
+            category.Visible = _searchEntries.Any(e => e.category == category && e.pickable && e.holder.Visible);
     }
 
     private void OnQueryChanged(string query)
     {
         string canon = ModSearch.Canon(query);
-        foreach ((NLabPotionHolder holder, _, string text) in _searchEntries)
+        foreach ((NLabPotionHolder holder, _, string text, _) in _searchEntries)
             holder.Visible = canon.Length == 0 || text.Contains(canon);
-        foreach (NPotionLabCategory category in _searchEntries.Select(e => e.category).Distinct())
-            category.Visible = _searchEntries.Any(e => e.category == category && e.holder.Visible);
-        if (_selected != null && !_selected.Visible)
+        RefreshCategoryVisibility();
+        if (_selected != null && !_selected.IsVisibleInTree())
         {
             SetHighlight(_selected, false);
             _selected = null;

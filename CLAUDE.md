@@ -12,6 +12,7 @@ A C# mod for **Slay the Spire 2** (Steam, legal copy). The game runs on **Godot 
 - **Game DLL (sts2.dll):** `E:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll`
 - **Mods folder:** `E:\SteamLibrary\steamapps\common\Slay the Spire 2\mods\`
 - **BaseLib (dependency):** `E:\SteamLibrary\steamapps\workshop\content\2868840\3737335127\`
+- **Decompiled game source:** `C:\Users\Hydrogen\Documents\GitHub\sts2-modding-mcp\decompiled\` — one `.cs` per class in namespaced folders; read/grep directly for method bodies (faster than the MCP search tools)
 
 ## Build
 

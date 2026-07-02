@@ -3,6 +3,8 @@ using MegaCrit.Sts2.addons.mega_text;
 using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Entities.CardRewardAlternatives;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.UI;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
@@ -31,6 +33,14 @@ namespace StS2Mod.StS2ModCode;
 ///
 /// Behaviour: click a card to HIGHLIGHT it (not take it); the checkmark commits it.
 /// The vanilla screen is kept only as the overlay + completion shell.
+///
+/// Card states mirror the compendium Card Library (via <see cref="CardGridVisibilityPatch"/>):
+///   • regular — could be this reward's loot at the current context (the results the
+///     patched CreateForReward produced); clickable;
+///   • darkened (the library's NotSeen look) — unlocked pool cards excluded at the
+///     current context (e.g. a pool-filtering modifier is active); not clickable;
+///   • locked (the library's locked look) — pool cards not unlocked yet; not clickable.
+/// The selection pool equals the loot pool, never more.
 /// </summary>
 public partial class ModRewardScreenUi : Control
 {
@@ -57,7 +67,10 @@ public partial class ModRewardScreenUi : Control
     private NConfirmButton _confirm = null!;
     private Control? _scroller; // the grid's ScrollContainer, once the sort bar is grafted into it
     private float _sortStripBottom = 132f; // sort strip's bottom edge, scroller-local (authored 92 + strip height)
-    private readonly List<CardModel> _cards = new();
+    private readonly List<CardModel> _cards = new();          // pickable: the reward's actual loot
+    private readonly List<CardModel> _extras = new();         // display-only: locked / out-of-context pool cards
+    private readonly HashSet<CardModel> _pickable = new();
+    private readonly Dictionary<CardModel, ModelVisibility> _visibility = new();
     private readonly Dictionary<CardModel, string> _searchText = new();
     private string _query = "";
 
@@ -94,7 +107,14 @@ public partial class ModRewardScreenUi : Control
         _grid.InsetForTopBar();
         _grid.YOffset = GridTopOffset + SortBarDrop; // pre-search default; BuildSearchBar raises it
         _grid.Connect(NCardGrid.SignalName.HolderPressed, Callable.From<NCardHolder>(OnCardClicked));
-        _grid.Connect(NCardGrid.SignalName.HolderAltPressed, Callable.From<NCardHolder>(_screen.InspectCard));
+        _grid.Connect(NCardGrid.SignalName.HolderAltPressed, Callable.From<NCardHolder>(h =>
+        {
+            if (h.CardModel != null && _pickable.Contains(h.CardModel))
+                _screen.InspectCard(h);
+        }));
+        _pickable.UnionWith(_cards);
+        BuildDisplayExtras();
+        CardGridVisibilityPatch.Overrides.Add(_grid, _visibility);
         PopulateDeferred();
 
         this.AddChildSafely(_confirm); // self-anchors bottom-right, hidden until Enable()
@@ -122,10 +142,39 @@ public partial class ModRewardScreenUi : Control
 
     // ---- selection ----
 
+    // The pool's whole cast beyond the actual loot, shown compendium-style: locked pool
+    // cards with the library's locked rendering, unlocked-but-excluded ones (a pool
+    // filter is active) with its darkened NotSeen look. Neither is selectable — the
+    // selection pool equals the loot pool.
+    private void BuildDisplayExtras()
+    {
+        if (_cards.Count == 0)
+            return;
+        Player player = _cards[0].Owner;
+        var offered = _cards.Select(c => c.Id).ToHashSet();
+        List<CardPoolModel> pools = _cards.Select(c => c.Pool).OfType<CardPoolModel>().Distinct().ToList();
+        var unlocked = pools
+            .SelectMany(p => p.GetUnlockedCards(player.UnlockState, player.RunState.CardMultiplayerConstraint))
+            .ToHashSet();
+        foreach (CardModel card in pools.SelectMany(p => p.AllCards).Distinct())
+        {
+            if (offered.Contains(card.Id) || !card.ShouldShowInCardLibrary)
+                continue;
+            if (card.Rarity is not (CardRarity.Common or CardRarity.Uncommon or CardRarity.Rare))
+                continue;
+            if (player.RunState.Players.Count > 1
+                    ? card.MultiplayerConstraint == CardMultiplayerConstraint.SingleplayerOnly
+                    : card.MultiplayerConstraint == CardMultiplayerConstraint.MultiplayerOnly)
+                continue;
+            _extras.Add(card);
+            _visibility[card] = unlocked.Contains(card) ? ModelVisibility.NotSeen : ModelVisibility.Locked;
+        }
+    }
+
     private void OnCardClicked(NCardHolder holder)
     {
         CardModel? card = holder.CardModel;
-        if (card == null)
+        if (card == null || !_pickable.Contains(card))
             return;
         if (_pending == card) // click again to deselect
         {
@@ -170,7 +219,7 @@ public partial class ModRewardScreenUi : Control
 
     // ---- search ----
 
-    // ponytail: 16 strip→bar gap, 56 bar→first-card clearance; tune by eye if MegaCrit reskins.
+    // ponytail: strip→bar gap and bar→first-card clearance; tune by eye if MegaCrit reskins.
     private const float SearchGap = 32f;
     private const float SearchClear = 48f;
 
@@ -217,8 +266,8 @@ public partial class ModRewardScreenUi : Control
     private void RefreshCards()
     {
         List<CardModel> show = _query.Length == 0
-            ? _cards
-            : _cards.Where(c => SearchableOf(c).Contains(_query)).ToList();
+            ? _cards.Concat(_extras).ToList()
+            : _cards.Concat(_extras).Where(c => SearchableOf(c).Contains(_query)).ToList();
         _grid.SetCards(show, PileType.None, new List<SortingOrders>(_sort));
         if (_pending == null)
             return;

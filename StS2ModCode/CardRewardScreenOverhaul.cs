@@ -1,12 +1,14 @@
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.CardRewardAlternatives;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.UI;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Godot;
 
 namespace StS2Mod.StS2ModCode;
@@ -47,6 +49,24 @@ public static class CardRewardScreenOverhaul
         view.Name = "ModRewardScreenUiDead";
         view.QueueFreeSafely();
         return true;
+    }
+}
+
+// The reward grid borrows the card library's per-card visibility states — Locked for
+// progression-locked pool cards, NotSeen (the library's darkened look) for unlocked
+// cards outside the current loot context. Plain NCardGrid always answers Visible, and
+// the grid re-asks on every holder (re)assignment, so an override table per grid is the
+// whole mechanism. Entries die with the grid (weak table).
+[HarmonyPatch(typeof(NCardGrid), "GetCardVisibility")]
+public static class CardGridVisibilityPatch
+{
+    public static readonly ConditionalWeakTable<NCardGrid, Dictionary<CardModel, ModelVisibility>> Overrides = new();
+
+    static void Postfix(NCardGrid __instance, CardModel card, ref ModelVisibility __result)
+    {
+        if (Overrides.TryGetValue(__instance, out Dictionary<CardModel, ModelVisibility>? map)
+            && map.TryGetValue(card, out ModelVisibility visibility))
+            __result = visibility;
     }
 }
 

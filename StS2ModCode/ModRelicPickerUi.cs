@@ -24,14 +24,20 @@ namespace StS2Mod.StS2ModCode;
 /// "Select a relic" overlay: the compendium Relic Collection screen, repurposed as a
 /// picker (the relic twin of <see cref="ModPotionPickerUi"/>). Borrows the game's own
 /// relic_collection scene wholesale — rarity sections with localized headers, character
-/// -pool outline colours, hover tips, back ribbon — and shows the full relic roster:
-///   • pickable — a relic this reward could roll (remaining grab-bag relics of the
-///     reward's eligible rarities, plus the already-rolled one); full colour, clickable;
+/// -pool outline colours, hover tips, back ribbon — and shows the relic roster:
+///   • pickable — a relic this reward could roll at the current context: the remaining
+///     grab-bag relics of the reward's eligible rarities, plus the already-rolled one.
+///     Undiscovered ones are included and render with full art (never the compendium's
+///     "Unknown" silhouette); full colour, clickable;
 ///   • locked — progression unlock not reached; the collection's lock icon and "locked"
 ///     hover tip, not clickable (exactly as the vanilla collection renders it);
-///   • not a valid loot — unlocked but outside this reward's pool (starter/shop/ancient/
-///     event relics, other rarities, already-pulled ones); the collection's "not seen"
-///     darkening repurposed as a "can't drop here" hint, real hover tips kept.
+///   • not a valid loot — unlocked but not rollable at the current context (starter/
+///     shop/ancient/event relics, other pools, relics already consumed this run); the
+///     collection's "not seen" darkening repurposed as a "can't drop here" hint, real
+///     hover tips kept.
+/// The selection pool equals the loot pool, never more. Categories (and ancient
+/// subcategories) with nothing pickable at all are hidden — locked relics don't keep
+/// a category alive.
 /// Click a pickable relic to highlight it, checkmark to take it, back ribbon to cancel.
 /// </summary>
 public partial class ModRelicPickerUi : Control
@@ -48,7 +54,7 @@ public partial class ModRelicPickerUi : Control
     private NRelicCollectionEntry? _selected;
     private RelicModel? _selectedModel;
     private Color _selectedOutlineOriginal;
-    private readonly List<(NRelicCollectionEntry entry, NRelicCollectionCategory[] cats, string text)> _searchEntries = new();
+    private readonly List<(NRelicCollectionEntry entry, NRelicCollectionCategory[] cats, string text, bool pickable)> _searchEntries = new();
 
     /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
     public static Task<RelicModel?> Show(Node host, Player player, RelicReward reward)
@@ -117,8 +123,8 @@ public partial class ModRelicPickerUi : Control
         // Vanilla loader does all the rendering (sections, subcategories, lock icons,
         // outline colours). Headers come from the same "relic_collection" loc table the
         // compendium uses. ponytail: the Starter section's Orobas-upgraded variants are
-        // distinct models outside the unlock set, so they render as locked — they are
-        // never valid drops anyway.
+        // distinct models outside the unlock set, so they render as locked — moot in
+        // practice, since a section with no pickable entries is hidden entirely.
         col._starter.LoadRelics(RelicRarity.Starter, col, new LocString("relic_collection", "STARTER"), seenAll, player.UnlockState, unlocked);
         col._common.LoadRelics(RelicRarity.Common, col, new LocString("relic_collection", "COMMON"), seenAll, player.UnlockState, unlocked);
         col._uncommon.LoadRelics(RelicRarity.Uncommon, col, new LocString("relic_collection", "UNCOMMON"), seenAll, player.UnlockState, unlocked);
@@ -147,6 +153,7 @@ public partial class ModRelicPickerUi : Control
 
         foreach (NRelicCollectionCategory category in categories)
             WireCategory(category, valid);
+        RefreshCategoryVisibility(); // hide sections with nothing pickable
 
         // Search bar in the scrolling flow above the sections (same as the potion picker).
         try
@@ -177,6 +184,11 @@ public partial class ModRelicPickerUi : Control
         MainFile.Logger.Info($"[relic picker] built: {valid.Count} pickable of {ModelDb.AllRelics.Count()} total");
     }
 
+    private static RelicRarity[] EligibleRarities(RelicReward reward) =>
+        reward.Rarity == RelicRarity.None
+            ? new[] { RelicRarity.Common, RelicRarity.Uncommon, RelicRarity.Rare } // RelicFactory.RollRarity outcomes
+            : new[] { reward.Rarity };
+
     /// <summary>
     /// What <see cref="MegaCrit.Sts2.Core.Factories.RelicFactory"/> could return for this
     /// reward: the remaining grab-bag relics of the eligible rarities (still allowed this
@@ -186,11 +198,8 @@ public partial class ModRelicPickerUi : Control
     /// </summary>
     private static HashSet<RelicModel> ValidDrops(Player player, RelicReward reward)
     {
-        RelicRarity[] eligible = reward.Rarity == RelicRarity.None
-            ? new[] { RelicRarity.Common, RelicRarity.Uncommon, RelicRarity.Rare } // RelicFactory.RollRarity outcomes
-            : new[] { reward.Rarity };
         var set = new HashSet<RelicModel>();
-        foreach (RelicRarity rarity in eligible)
+        foreach (RelicRarity rarity in EligibleRarities(reward))
             if (player.RelicGrabBag._deques.TryGetValue(rarity, out List<RelicModel>? deque))
                 foreach (RelicModel relic in deque)
                     if (relic.IsAllowed(player.RunState))
@@ -211,12 +220,18 @@ public partial class ModRelicPickerUi : Control
                      entry.GetSignalConnectionList(NClickableControl.SignalName.Released))
                 entry.Disconnect(NClickableControl.SignalName.Released, conn["callable"].AsCallable());
 
-            RecordSearchText(entry);
+            bool locked = entry.ModelVisibility == ModelVisibility.Locked;
+            bool pickable = !locked && valid.Contains(entry.relic.CanonicalInstance);
+            RecordSearchText(entry, pickable);
 
-            if (entry.ModelVisibility == ModelVisibility.Locked)
+            // The entry scene's cursor is the compendium's inspect magnifier; here a
+            // click selects, so show a hand on pickable entries and nothing special else.
+            entry.MouseDefaultCursorShape = pickable ? CursorShape.PointingHand : CursorShape.Arrow;
+
+            if (locked)
                 continue; // vanilla lock icon + "locked" hover tip; not selectable
 
-            if (valid.Contains(entry.relic.CanonicalInstance))
+            if (pickable)
             {
                 NRelicCollectionEntry captured = entry;
                 entry.Connect(NClickableControl.SignalName.Released,
@@ -224,7 +239,7 @@ public partial class ModRelicPickerUi : Control
             }
             else if (entry._relicNode is NRelic relicNode)
             {
-                // Unlocked but can't drop from this reward: repurpose the collection's
+                // Discovered but can't drop from this reward: repurpose the collection's
                 // "not seen" darkening as the "not a valid loot" hint; hover tips kept.
                 relicNode.Icon.SelfModulate = StsColors.ninetyPercentBlack;
                 relicNode.Outline.SelfModulate = StsColors.halfTransparentWhite;
@@ -235,7 +250,7 @@ public partial class ModRelicPickerUi : Control
     // Title + hover-tip text, canonicalised once (library-style matching), so queries
     // hit both names and effect text. Ancestor categories remembered so search can
     // collapse empty sections and subsections.
-    private void RecordSearchText(NRelicCollectionEntry entry)
+    private void RecordSearchText(NRelicCollectionEntry entry, bool pickable)
     {
         string text = entry.relic.Title.GetFormattedText();
         try
@@ -252,16 +267,23 @@ public partial class ModRelicPickerUi : Control
         for (Node? n = entry.GetParent(); n != null && n is not NRelicCollection; n = n.GetParent())
             if (n is NRelicCollectionCategory c)
                 cats.Add(c);
-        _searchEntries.Add((entry, cats.ToArray(), ModSearch.Canon(text)));
+        _searchEntries.Add((entry, cats.ToArray(), ModSearch.Canon(text), pickable));
+    }
+
+    // A section (or ancient subsection) earns its place only through a visible pickable
+    // entry — all-darkened and all-locked categories are pure noise in a picker.
+    private void RefreshCategoryVisibility()
+    {
+        foreach (NRelicCollectionCategory cat in _searchEntries.SelectMany(e => e.cats).Distinct())
+            cat.Visible = _searchEntries.Any(e => e.pickable && e.entry.Visible && e.cats.Contains(cat));
     }
 
     private void OnQueryChanged(string query)
     {
         string canon = ModSearch.Canon(query);
-        foreach ((NRelicCollectionEntry entry, _, string text) in _searchEntries)
+        foreach ((NRelicCollectionEntry entry, _, string text, _) in _searchEntries)
             entry.Visible = canon.Length == 0 || text.Contains(canon);
-        foreach (NRelicCollectionCategory cat in _searchEntries.SelectMany(e => e.cats).Distinct())
-            cat.Visible = _searchEntries.Any(e => e.entry.Visible && e.cats.Contains(cat));
+        RefreshCategoryVisibility();
         if (_selected != null && !_selected.IsVisibleInTree())
         {
             SetHighlight(_selected, false);

@@ -11,7 +11,8 @@ namespace StS2Mod.StS2ModCode;
 /// Card Library's own <see cref="NSearchBar"/> (LineEdit + clear button + localized
 /// "Search" placeholder), extracted from its scene. Callers graft it into their scrolling
 /// content (via <see cref="CreateBar"/> + <see cref="PlaceCentered"/>) so it scrolls away
-/// with the cards/potions like the sort bar, instead of sitting fixed over the relic row.
+/// with the cards/potions/relics like the sort bar, instead of sitting fixed over the
+/// relic row.
 /// </summary>
 internal static class ModSearch
 {
