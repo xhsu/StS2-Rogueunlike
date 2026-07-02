@@ -55,7 +55,11 @@ public partial class ModRewardScreenUi : Control
     private NCardRewardSelectionScreen _screen = null!;
     private NCardGrid _grid = null!;
     private NConfirmButton _confirm = null!;
+    private Control? _scroller; // the grid's ScrollContainer, once the sort bar is grafted into it
+    private float _sortStripBottom = 132f; // sort strip's bottom edge, scroller-local (authored 92 + strip height)
     private readonly List<CardModel> _cards = new();
+    private readonly Dictionary<CardModel, string> _searchText = new();
+    private string _query = "";
 
     // Sort priority (index 0 = primary key); each sort button moves its key to the front.
     private readonly List<SortingOrders> _sort = new()
@@ -88,7 +92,7 @@ public partial class ModRewardScreenUi : Control
         this.AddChildSafely(_grid);
         _grid.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         _grid.InsetForTopBar();
-        _grid.YOffset = GridTopOffset + SortBarDrop;
+        _grid.YOffset = GridTopOffset + SortBarDrop; // pre-search default; BuildSearchBar raises it
         _grid.Connect(NCardGrid.SignalName.HolderPressed, Callable.From<NCardHolder>(OnCardClicked));
         _grid.Connect(NCardGrid.SignalName.HolderAltPressed, Callable.From<NCardHolder>(_screen.InspectCard));
         PopulateDeferred();
@@ -108,6 +112,7 @@ public partial class ModRewardScreenUi : Control
         deck.QueueFreeSafely();
 
         BuildOtherAlternatives(extraOptions); // Reroll / relic options (Skip is the back button)
+        BuildSearchBar();
 
         _screen._banner.Visible = false; // hide the big centre banner; the bottom label carries the title
         _screen._lastFocusedControl = _grid;
@@ -155,12 +160,92 @@ public partial class ModRewardScreenUi : Control
             await ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             await ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             if (IsInstanceValid(_grid))
-                _grid.SetCards(_cards, PileType.None, new List<SortingOrders>(_sort));
+                RefreshCards();
         }
         catch (System.Exception e)
         {
             MainFile.Logger.Error($"[reward] populate failed: {e}");
         }
+    }
+
+    // ---- search ----
+
+    // ponytail: 16 strip→bar gap, 56 bar→first-card clearance; tune by eye if MegaCrit reskins.
+    private const float SearchGap = 32f;
+    private const float SearchClear = 48f;
+
+    private void BuildSearchBar()
+    {
+        try
+        {
+            NSearchBar? bar;
+            if (_scroller != null)
+            {
+                // Inside the grid's scroller, centred under the sort strip: scrolls away
+                // with the cards (same mechanism as the sort bar) and stays out of the
+                // relic row, which the old fixed top-centre spot collided with.
+                bar = ModSearch.CreateBar(_scroller);
+                if (bar != null)
+                {
+                    float top = _sortStripBottom + SearchGap;
+                    ModSearch.PlaceCentered(bar, top);
+                    _grid.YOffset = (int)(top + bar.CustomMinimumSize.Y + SearchClear);
+                }
+            }
+            else
+            {
+                bar = ModSearch.CreateBar(this); // no sort strip to sit under; fixed top-centre fallback
+                if (bar != null)
+                    ModSearch.PlaceCentered(bar, 96f);
+            }
+            bar?.Connect(NSearchBar.SignalName.QueryChanged, Callable.From<string>(OnQueryChanged));
+        }
+        catch (System.Exception e)
+        {
+            MainFile.Logger.Error($"[search] bar failed (screen still works without it): {e}");
+        }
+    }
+
+    private void OnQueryChanged(string query)
+    {
+        _query = ModSearch.Canon(query);
+        RefreshCards();
+    }
+
+    // Single funnel for (re)filling the grid: applies the search filter and the current
+    // sort, and keeps the pending pick consistent when the filter hides it.
+    private void RefreshCards()
+    {
+        List<CardModel> show = _query.Length == 0
+            ? _cards
+            : _cards.Where(c => SearchableOf(c).Contains(_query)).ToList();
+        _grid.SetCards(show, PileType.None, new List<SortingOrders>(_sort));
+        if (_pending == null)
+            return;
+        if (show.Contains(_pending))
+            _grid.HighlightCard(_pending); // holders were rebuilt; re-apply
+        else
+        {
+            _pending = null;
+            _confirm.Disable();
+        }
+    }
+
+    // Title + formatted description, canonicalised once per card (library-style matching).
+    private string SearchableOf(CardModel card)
+    {
+        if (_searchText.TryGetValue(card, out string? text))
+            return text;
+        try
+        {
+            text = ModSearch.Canon(card.Title + " " + card.Description.GetFormattedText());
+        }
+        catch (System.Exception)
+        {
+            text = ModSearch.Canon(card.Title);
+        }
+        _searchText[card] = text;
+        return text;
     }
 
     // ---- deck-view chrome ----
@@ -185,6 +270,9 @@ public partial class ModRewardScreenUi : Control
 
         options.GetParent().RemoveChild(options);
         scroller.AddChildSafely(options); // keeps its authored top-wide anchors within the container
+        _scroller = scroller;
+        if (options is Control oc)
+            _sortStripBottom = oc.Position.Y + bg.Position.Y + bg.Size.Y;
         if (frame != null)
             bg.Material = frame;
 
@@ -209,7 +297,7 @@ public partial class ModRewardScreenUi : Control
         _sort.Remove(asc);
         _sort.Remove(desc);
         _sort.Insert(0, s.IsDescending ? desc : asc);
-        _grid.SetCards(_cards, PileType.None, new List<SortingOrders>(_sort));
+        RefreshCards();
     }
 
     private void BuildViewUpgrades(Node deck)

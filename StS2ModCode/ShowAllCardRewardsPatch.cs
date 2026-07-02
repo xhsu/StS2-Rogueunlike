@@ -1,50 +1,61 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Factories;
-using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace StS2Mod.StS2ModCode;
 
-// ponytail: prefix patch replaces the 3-card random draw with the full pool.
-// If the reward screen can't scroll for 30+ cards, we'll need UI work.
+// ponytail: postfix appends the rest of the pool to the vanilla reward instead of
+// replacing it. Vanilla's 3 rolls, upgrade rolls and relic hooks (Lasting Candy...)
+// run untouched, so relics see the small card list they were written against.
+//
+// Gated on IsCardReward: only CardReward.Populate sets that flag. Relics, events
+// and run modifiers (Lasting Candy, Sea Glass, Sealed Deck, Kaleidoscope...) also
+// roll cards through CreateForReward and must get vanilla results — replacing
+// their result with the whole pool made "pick 1 random card" deterministic and
+// crashed Lasting Candy with a single-rarity custom pool.
 [HarmonyPatch(typeof(CardFactory), nameof(CardFactory.CreateForReward),
     typeof(Player), typeof(int), typeof(CardCreationOptions))]
 public static class ShowAllCardRewardsPatch
 {
-    static bool Prefix(Player player, CardCreationOptions options,
+    static void Postfix(Player player, CardCreationOptions options,
         ref IEnumerable<CardCreationResult> __result)
     {
-        // Let relics/modifiers inject their card pools (Prismatic Gem, CharacterCards, etc.)
-        options = Hook.ModifyCardRewardCreationOptions(player.RunState, player, options);
+        if (!options.Flags.HasFlag(CardCreationFlags.IsCardReward))
+            return;
 
-        var allCards = options.GetPossibleCards(player)
-            .Where(c => c.Rarity is CardRarity.Common or CardRarity.Uncommon or CardRarity.Rare)
-            .Distinct()
-            .ToList();
-
-        if (player.RunState.Players.Count > 1)
-            allCards.RemoveAll(c => c.MultiplayerConstraint == CardMultiplayerConstraint.SingleplayerOnly);
-        else
-            allCards.RemoveAll(c => c.MultiplayerConstraint == CardMultiplayerConstraint.MultiplayerOnly);
-
-        var results = allCards
-            .Select(c => new CardCreationResult(player.RunState.CreateCard(c, player)))
-            .ToList();
-
-        if (!options.Flags.HasFlag(CardCreationFlags.NoModifyHooks)
-            && Hook.TryModifyCardRewardOptions(player.RunState, player, results, options,
-                out List<AbstractModel> modifiers))
+        try
         {
-            TaskHelper.RunSafely(Hook.AfterModifyingCardRewardOptions(player.RunState, modifiers));
-        }
+            var results = __result.ToList();
+            var offered = results.Select(r => r.Card.Id).ToHashSet();
 
-        __result = results;
-        return false;
+            // Let relics/modifiers inject their card pools (Prismatic Gem, CharacterCards, etc.)
+            var extras = Hook.ModifyCardRewardCreationOptions(player.RunState, player, options)
+                .GetPossibleCards(player)
+                .Where(c => c.Rarity is CardRarity.Common or CardRarity.Uncommon or CardRarity.Rare)
+                .Distinct()
+                .Where(c => !offered.Contains(c.Id));
+
+            extras = player.RunState.Players.Count > 1
+                ? extras.Where(c => c.MultiplayerConstraint != CardMultiplayerConstraint.SingleplayerOnly)
+                : extras.Where(c => c.MultiplayerConstraint != CardMultiplayerConstraint.MultiplayerOnly);
+
+            results.AddRange(extras.Select(c =>
+                new CardCreationResult(player.RunState.CreateCard(c, player))));
+
+            __result = results;
+        }
+        catch (Exception e)
+        {
+            // A relic or another mod we didn't anticipate — keep the vanilla reward
+            // rather than killing the room-end flow (soft-lock / black screen on load).
+            MainFile.Logger.Error($"ShowAllCardRewards failed, falling back to vanilla reward: {e}");
+        }
     }
 }

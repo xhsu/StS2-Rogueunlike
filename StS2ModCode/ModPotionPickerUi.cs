@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.Entities.Potions;
 using MegaCrit.Sts2.Core.Entities.UI;
 using MegaCrit.Sts2.Core.Factories;
 using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
@@ -38,11 +39,16 @@ public partial class ModPotionPickerUi : Control
     private static readonly string SelectScene =
         SceneHelper.GetScenePath("screens/card_selection/simple_card_select_screen");
 
+    // ponytail: gaps above/below the search bar within its list row; tune by eye.
+    private const float SearchTopGap = 48f;
+    private const float SearchBottomGap = 32f;
+
     private readonly TaskCompletionSource<PotionModel?> _tcs = new();
     private NConfirmButton _confirm = null!;
     private NLabPotionHolder? _selected;
     private PotionModel? _selectedModel;
     private Color _selectedOutlineOriginal;
+    private readonly List<(NLabPotionHolder holder, NPotionLabCategory category, string text)> _searchEntries = new();
 
     /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
     public static Task<PotionModel?> Show(Node host, Player player)
@@ -135,6 +141,35 @@ public partial class ModPotionPickerUi : Control
         _confirm.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(OnConfirm));
         _confirm.Disable();
 
+        // Search bar (the Card Library's widget) in the scrolling flow above the rarity
+        // sections — a stretched row hosting the centred bar — so it scrolls away with
+        // the potions instead of sitting fixed over the screen top. The row is the
+        // spacer: the list only sees its height, so the gaps are row height minus bar.
+        try
+        {
+            Control sections = (Control)lab._common.GetParent();
+            int at = lab._common.GetIndex();
+            var searchRow = new Control { Name = "ModSearchRow" };
+            sections.AddChildSafely(searchRow);
+            sections.MoveChild(searchRow, at);
+            NSearchBar? bar = ModSearch.CreateBar(searchRow);
+            if (bar == null)
+            {
+                searchRow.QueueFreeSafely();
+            }
+            else
+            {
+                searchRow.CustomMinimumSize = new Vector2(0,
+                    SearchTopGap + bar.CustomMinimumSize.Y + SearchBottomGap);
+                ModSearch.PlaceCentered(bar, SearchTopGap);
+                bar.Connect(NSearchBar.SignalName.QueryChanged, Callable.From<string>(OnQueryChanged));
+            }
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"[search] potion bar failed (picker still works without it): {e}");
+        }
+
         MainFile.Logger.Info($"[potion picker] built: {valid.Count} pickable of {ModelDb.AllPotions.Count()} total");
     }
 
@@ -163,9 +198,11 @@ public partial class ModPotionPickerUi : Control
         foreach (PotionModel potion in shared.Concat(charGrouped))
         {
             bool isLocked = !unlocked.Contains(potion);
-            NLabPotionHolder holder = NLabPotionHolder.Create(potion.ToMutable(),
+            PotionModel mutable = potion.ToMutable();
+            NLabPotionHolder holder = NLabPotionHolder.Create(mutable,
                 isLocked ? ModelVisibility.Locked : ModelVisibility.Visible);
             category._potionContainer.AddChildSafely(holder);
+            RecordSearchText(holder, category, mutable);
             if (isLocked)
                 continue; // vanilla lock icon + "locked" hover tip; not selectable
             if (valid.Contains(potion))
@@ -185,6 +222,40 @@ public partial class ModPotionPickerUi : Control
                 node.Image.SelfModulate = StsColors.ninetyPercentBlack;
                 node.Outline.Modulate = StsColors.halfTransparentWhite;
             }
+        }
+    }
+
+    // Title + hover-tip text, canonicalised once (library-style matching), so queries
+    // hit both names ("fire") and effect text ("draw", "strength").
+    private void RecordSearchText(NLabPotionHolder holder, NPotionLabCategory category, PotionModel potion)
+    {
+        string text = potion.Title.GetFormattedText();
+        try
+        {
+            foreach (IHoverTip tip in potion.HoverTips)
+                if (tip is HoverTip hoverTip)
+                    text += " " + hoverTip.Title + " " + hoverTip.Description;
+        }
+        catch (Exception)
+        {
+            // some tips need combat context to format; title-only is fine then
+        }
+        _searchEntries.Add((holder, category, ModSearch.Canon(text)));
+    }
+
+    private void OnQueryChanged(string query)
+    {
+        string canon = ModSearch.Canon(query);
+        foreach ((NLabPotionHolder holder, _, string text) in _searchEntries)
+            holder.Visible = canon.Length == 0 || text.Contains(canon);
+        foreach (NPotionLabCategory category in _searchEntries.Select(e => e.category).Distinct())
+            category.Visible = _searchEntries.Any(e => e.category == category && e.holder.Visible);
+        if (_selected != null && !_selected.Visible)
+        {
+            SetHighlight(_selected, false);
+            _selected = null;
+            _selectedModel = null;
+            _confirm.Disable();
         }
     }
 
