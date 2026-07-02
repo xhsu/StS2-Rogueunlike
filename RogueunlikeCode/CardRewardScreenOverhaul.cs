@@ -53,8 +53,8 @@ public static class CardRewardScreenOverhaul
 }
 
 // The reward grid borrows the card library's per-card visibility states — Locked for
-// progression-locked pool cards, NotSeen (the library's darkened look) for unlocked
-// cards outside the current loot context. Plain NCardGrid always answers Visible, and
+// progression-locked pool cards, NotSeen (the library's blurred "Unknown" look) for
+// unlocked cards outside the current loot context. Plain NCardGrid always answers Visible, and
 // the grid re-asks on every holder (re)assignment, so an override table per grid is the
 // whole mechanism. Entries die with the grid (weak table).
 [HarmonyPatch(typeof(NCardGrid), "GetCardVisibility")]
@@ -72,6 +72,9 @@ public static class CardGridVisibilityPatch
 
 // Unseen-pickable cards sparkle: NCard's own reward sparkle particles (_sparkles, the
 // bits vanilla shows over rare reward cards) flag compendium-new cards at a glance.
+// NotSeen/Locked extras also get a gray tint: NCard's own look for those states is
+// blurred art + Unknown/Locked text at full brightness, which reads as pickable loot
+// at grid size — the tint (the relic compendium's locked gray) marks them unavailable.
 // NCard resets the node whenever a holder is (re)assigned and the grid recycles holders
 // while scrolling, so — exactly like NCardLibraryGrid re-applies its per-holder state —
 // re-apply after InitGrid (creation) and after every AssignCardsToRow (scroll recycle).
@@ -103,7 +106,13 @@ public static class CardGridSparklePatch
     {
         foreach (NGridCardHolder holder in row)
             if (holder.CardNode is NCard node && node.Model is CardModel card)
+            {
                 node._sparkles.Visible = sparkling.Contains(card);
+                // Explicit White restore: ReassignToCard never touches Modulate, so a
+                // recycled holder would otherwise keep the previous card's tint.
+                node.Modulate = node.Visibility == ModelVisibility.Visible
+                    ? Colors.White : StsColors.gray;
+            }
     }
 }
 

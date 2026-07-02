@@ -38,9 +38,9 @@ namespace Rogueunlike.RogueunlikeCode;
 /// Card states mirror the compendium Card Library (via <see cref="CardGridVisibilityPatch"/>):
 ///   • regular — could be this reward's loot at the current context (the results the
 ///     patched CreateForReward produced); clickable;
-///   • darkened (the library's NotSeen look) — unlocked pool cards excluded at the
-///     current context (e.g. a pool-filtering modifier is active); not clickable;
-///   • locked (the library's locked look) — pool cards not unlocked yet; not clickable.
+///   • darkened (the library's NotSeen look plus a gray tint) — unlocked pool cards
+///     excluded at the current context (e.g. a pool-filtering modifier is active); not clickable;
+///   • locked (the library's locked look, same tint) — pool cards not unlocked yet; not clickable.
 /// The selection pool equals the loot pool, never more.
 /// </summary>
 public partial class ModRewardScreenUi : Control

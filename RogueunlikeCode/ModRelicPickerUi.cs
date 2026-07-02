@@ -10,6 +10,7 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Relics;
+using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.RelicCollection;
 using MegaCrit.Sts2.Core.Rewards;
@@ -23,11 +24,12 @@ namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
 /// "Select a relic" overlay: the compendium Relic Collection screen, repurposed as a
-/// picker (the relic twin of <see cref="ModPotionPickerUi"/>). Borrows the game's own
+/// picker (the relic twin of <see cref="ModPotionPickerUi"/>). Serves both the relic
+/// reward row (feature #3) and the treasure chest (feature #3.1). Borrows the game's own
 /// relic_collection scene wholesale — rarity sections with localized headers, character
 /// -pool outline colours, hover tips, back ribbon — and shows the relic roster:
-///   • pickable — a relic this reward could roll at the current context: the remaining
-///     grab-bag relics of the reward's eligible rarities, plus the already-rolled one.
+///   • pickable — a relic this source could roll at the current context: the remaining
+///     grab-bag relics of the eligible rarities, plus any already-rolled ones.
 ///     Undiscovered ones are included and render with full art (never the compendium's
 ///     "Unknown" silhouette); full colour, clickable;
 ///   • locked — progression unlock not reached; the collection's lock icon and "locked"
@@ -58,12 +60,21 @@ public partial class ModRelicPickerUi : Control
     private readonly List<(NRelicCollectionEntry entry, NRelicCollectionCategory[] cats, string text, bool pickable)> _searchEntries = new();
     private readonly Dictionary<NRelicCollectionEntry, Tween> _unseenPulses = new(); // pickable & compendium-undiscovered
 
+    /// <summary>Resolves with the confirmed relic; null = cancelled (or torn down).</summary>
+    public Task<RelicModel?> Result => _tcs.Task;
+
     /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
-    public static Task<RelicModel?> Show(Node host, Player player, RelicReward reward)
+    public static Task<RelicModel?> Show(Node host, Player player, RelicReward reward) =>
+        Attach(host, player, ValidDrops(player, reward)).Result;
+
+    /// <summary>
+    /// Shows the picker with an explicit pickable set (the treasure chest path). Attaches
+    /// to the enclosing rewards screen / treasure room so it covers it and dies with it.
+    /// </summary>
+    public static ModRelicPickerUi Attach(Node host, Player player, HashSet<RelicModel> valid)
     {
-        // Attach to the rewards screen so the picker covers it and dies with it.
         Node? attach = host;
-        while (attach != null && attach is not NRewardsScreen)
+        while (attach != null && attach is not NRewardsScreen && attach is not NTreasureRoom)
             attach = attach.GetParent();
         attach ??= host.GetTree().Root;
 
@@ -71,14 +82,14 @@ public partial class ModRelicPickerUi : Control
         attach.AddChildSafely(ui);
         try
         {
-            ui.Build(player, reward);
+            ui.Build(player, valid);
         }
         catch
         {
             ui.QueueFreeSafely();
             throw;
         }
-        return ui._tcs.Task;
+        return ui;
     }
 
     // Also covers the rewards screen being torn down around us: resolve as "cancelled".
@@ -87,7 +98,7 @@ public partial class ModRelicPickerUi : Control
         _tcs.TrySetResult(null);
     }
 
-    private void Build(Player player, RelicReward reward)
+    private void Build(Player player, HashSet<RelicModel> valid)
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         ModSeenGate.SuppressWhile(this); // browsing/hovering the roster must not "discover" it
@@ -113,7 +124,6 @@ public partial class ModRelicPickerUi : Control
         back.MoveToHidePosition();
         back.Enable();
 
-        HashSet<RelicModel> valid = ValidDrops(player, reward);
         HashSet<RelicModel> unlocked = player.UnlockState.Relics.ToHashSet();
         // Real art for everything: the compendium's "???" mystery state would make the
         // picker unreadable. Locked stays locked (mirrors the potion picker).
