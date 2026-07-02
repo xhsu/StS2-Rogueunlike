@@ -275,22 +275,36 @@ public static class ShopPicker
     // ---- shade rendering (postfixes normalize both ways: a re-pick of the very item
     // that was rolled keeps the same node, so assignment must explicitly un-shade) ----
 
-    [HarmonyPatch(typeof(NMerchantCard), "UpdateVisual")]
+    // Two application points: UpdateVisual (stocking, gold changes, assignment) and
+    // OnInventoryOpened (the save-reload path builds the slots before the room is in
+    // the tree, and a later re-render restored the card face — real art in gray, an
+    // identity leak — so re-assert when the rug actually opens).
+    [HarmonyPatch]
     public static class CardShadePatch
     {
-        static void Postfix(NMerchantCard __instance)
+        [HarmonyPostfix, HarmonyPatch(typeof(NMerchantCard), "UpdateVisual")]
+        static void AfterUpdateVisual(NMerchantCard __instance) => ApplyCardShade(__instance);
+
+        [HarmonyPostfix, HarmonyPatch(typeof(NMerchantCard), nameof(NMerchantCard.OnInventoryOpened))]
+        static void AfterInventoryOpened(NMerchantCard __instance) => ApplyCardShade(__instance);
+
+        private static void ApplyCardShade(NMerchantCard slot)
         {
-            MerchantCardEntry entry = __instance._cardEntry;
-            if (!IsEligible(entry) || !entry.IsStocked || __instance._cardNode is not NCard node)
+            MerchantCardEntry entry = slot._cardEntry;
+            if (!IsEligible(entry) || !entry.IsStocked || slot._cardNode is not NCard node)
                 return;
             bool shaded = IsUnassigned(entry);
-            node.Visibility = shaded ? ModelVisibility.NotSeen : ModelVisibility.Visible;
+            ModelVisibility want = shaded ? ModelVisibility.NotSeen : ModelVisibility.Visible;
+            if (node.Visibility != want)
+            {
+                node.Visibility = want; // Reload(): blurred art / restored art
+                if (node.IsNodeReady())
+                    node.UpdateVisuals(PileType.None, CardPreviewMode.Normal); // labels follow visibility
+            }
             node.Modulate = shaded ? StsColors.gray : Colors.White;
             if (shaded)
-            {
-                __instance._saleVisual.Visible = false; // the sale banner is price info
-                MaskCost(__instance);
-            }
+                MaskCost(slot); // the sale banner stays visible — picking WHERE to spend
+                                // the assignment is exactly the strategy the discount feeds
         }
     }
 

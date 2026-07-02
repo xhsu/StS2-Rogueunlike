@@ -99,6 +99,9 @@ public partial class ModPotionPickerUi : Control
     private void Build(Player player, HashSet<PotionModel> valid)
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        // Screens outside the ACTIVE screen context get FocusBehaviorRecursive=Disabled
+        // (ScreenContextUtils) — at the merchant that killed the search bar's focus.
+        FocusBehaviorRecursive = FocusBehaviorRecursiveEnum.Enabled;
         ModSeenGate.SuppressWhile(this); // browsing/hovering the roster must not "discover" it
 
         // In-run there is no compendium backdrop; supply one. It also swallows every
@@ -249,7 +252,7 @@ public partial class ModPotionPickerUi : Control
     // hit both names ("fire") and effect text ("draw", "strength").
     private void RecordSearchText(NLabPotionHolder holder, NPotionLabCategory category, PotionModel potion, bool pickable)
     {
-        string text = potion.Title.GetFormattedText();
+        string text = potion.Title.GetFormattedText() + " " + potion.Rarity;
         try
         {
             foreach (IHoverTip tip in potion.HoverTips)
@@ -275,7 +278,7 @@ public partial class ModPotionPickerUi : Control
     {
         string canon = ModSearch.Canon(query);
         foreach ((NLabPotionHolder holder, _, string text, _) in _searchEntries)
-            holder.Visible = canon.Length == 0 || text.Contains(canon);
+            holder.Visible = canon.Length == 0 || ModSearch.Matches(text, canon);
         RefreshCategoryVisibility();
         if (_selected != null && !_selected.IsVisibleInTree())
         {

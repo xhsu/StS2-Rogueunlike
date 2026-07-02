@@ -76,6 +76,19 @@ internal static class ModSearch
     public static string Canon(string text) =>
         NSearchBar.Normalize(NSearchBar.RemoveHtmlTags(text));
 
+    /// <summary>
+    /// Space = AND: every space-separated token of the (canonicalised) query must appear
+    /// somewhere in the (canonicalised) haystack — "sly rare" finds rare cards with Sly.
+    /// A single-token query behaves like plain Contains.
+    /// </summary>
+    public static bool Matches(string haystack, string canonQuery)
+    {
+        foreach (string token in canonQuery.Split(' ', System.StringSplitOptions.RemoveEmptyEntries))
+            if (!haystack.Contains(token))
+                return false;
+        return true;
+    }
+
     private static T? FindDescendant<T>(Node node) where T : class
     {
         foreach (Node child in node.GetChildren())

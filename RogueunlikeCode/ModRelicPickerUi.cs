@@ -103,6 +103,10 @@ public partial class ModRelicPickerUi : Control
     private void Build(Player player, HashSet<RelicModel> valid)
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        // Screens outside the ACTIVE screen context get FocusBehaviorRecursive=Disabled
+        // (ScreenContextUtils) — at the merchant that killed the search bar's focus.
+        // An explicit Enabled on our root overrides the inherited disable.
+        FocusBehaviorRecursive = FocusBehaviorRecursiveEnum.Enabled;
         ModSeenGate.SuppressWhile(this); // browsing/hovering the roster must not "discover" it
 
         // In-run there is no compendium backdrop; supply one. It also swallows every
@@ -272,7 +276,7 @@ public partial class ModRelicPickerUi : Control
     // collapse empty sections and subsections.
     private void RecordSearchText(NRelicCollectionEntry entry, bool pickable)
     {
-        string text = entry.relic.Title.GetFormattedText();
+        string text = entry.relic.Title.GetFormattedText() + " " + entry.relic.Rarity;
         try
         {
             foreach (IHoverTip tip in entry.relic.HoverTips)
@@ -302,7 +306,7 @@ public partial class ModRelicPickerUi : Control
     {
         string canon = ModSearch.Canon(query);
         foreach ((NRelicCollectionEntry entry, _, string text, _) in _searchEntries)
-            entry.Visible = canon.Length == 0 || text.Contains(canon);
+            entry.Visible = canon.Length == 0 || ModSearch.Matches(text, canon);
         RefreshCategoryVisibility();
         if (_selected != null && !_selected.IsVisibleInTree())
         {
