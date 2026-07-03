@@ -1,5 +1,8 @@
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.DevConsole;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Models;
@@ -24,15 +27,18 @@ namespace Rogueunlike.RogueunlikeCode;
 /// custom-modifier scenarios (Sealed Deck's pick-10-of-30 rides Neow's option
 /// generation) untouched by construction.
 ///
-/// Save-safety: the only write is RoomSet.Ancient — the same field GenerateRooms rolls,
-/// serialized as AncientId in the vanilla run save — done BEFORE travel, so the room,
-/// run history, metrics and reload all read the choice through pure vanilla paths.
+/// Save-safety, singleplayer: the only write is RoomSet.Ancient — the same field
+/// GenerateRooms rolls, serialized as AncientId in the vanilla run save — done BEFORE
+/// travel, so the room, run history, metrics and reload all read the choice through
+/// pure vanilla paths.
 ///
-/// Multiplayer: vanilla keeps ONE canonical event per room (EventRoom asserts it and
-/// the save stores a single EventId; EventSynchronizer clones per-player copies of that
-/// same model and only syncs option CHOICES). Per-player different Ancients is not
-/// vanilla-reachable state and no sync channel exists for the identity — so this is
-/// singleplayer-only; in multiplayer the node behaves vanilla.
+/// Multiplayer (every client modded — see <see cref="AncientPickSyncCmd.cs"/>): each
+/// player's confirm is broadcast as a networked console command through the vanilla
+/// lockstep action queue, and EventSynchronizer.BeginEvent clones each player's event
+/// from their pick. The saved state is untouched (the room keeps the vanilla-rolled
+/// EventId): quitting after the event completes reloads to that Ancient's done page
+/// with all gained benefits intact; quitting mid-event replays the room as the vanilla
+/// roll from the entry save — picks live in memory only.
 /// </summary>
 [HarmonyPatch(typeof(NMapScreen), nameof(NMapScreen.OnMapPointSelectedLocally))]
 public static class AncientPickerPatch
@@ -47,8 +53,8 @@ public static class AncientPickerPatch
         try
         {
             RunState? runState = __instance._runState;
-            if (runState == null || runState.Players.Count > 1)
-                return true; // MP: no vanilla channel for the ancient's identity — stay vanilla
+            if (runState == null)
+                return true;
             if (point.Point.PointType != MapPointType.Ancient || point.State != MapPointState.Travelable)
                 return true;
             ActModel act = runState.Act;
@@ -87,8 +93,20 @@ public static class AncientPickerPatch
             AncientEventModel? choice = await ui.Result;
             if (choice == null || !GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
                 return; // cancelled (or the map died under us): stay on the map, node re-clickable
-            act._rooms.Ancient = choice; // vanilla-reachable: the field GenerateRooms rolls, saved as AncientId
-            MainFile.Logger.Info($"[ancient picker] act {runState.CurrentActIndex + 1} ancient set to {choice.Id}");
+            if (runState.Players.Count > 1)
+            {
+                // MP (real or fake): broadcast the pick through the lockstep queue. It is
+                // enqueued BEFORE the travel vote below, so every client records it before
+                // room creation. Shared/saved state stays untouched (see file header).
+                Player me = LocalContext.GetMe(runState);
+                RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(
+                    new ConsoleCmdGameAction(me, $"{AncientPickConsoleCmd.Name} {choice.Id.Entry}", inCombat: false));
+            }
+            else
+            {
+                act._rooms.Ancient = choice; // vanilla-reachable: the field GenerateRooms rolls, saved as AncientId
+            }
+            MainFile.Logger.Info($"[ancient picker] act {runState.CurrentActIndex + 1} ancient pick: {choice.Id}");
             _passThrough = true;
             try
             {

@@ -39,7 +39,7 @@ Design invariants every feature follows — do not break these:
 - **Selection pool = loot pool at the current context.** Pickable ⟺ that exact source could roll that exact item right now. The rest of the pool renders compendium-style: darkened (NotSeen) when unlocked-but-excluded here, locked when progression-locked. Never expand a loot pool.
 - **Save-safety.** Every write lands in vanilla-reachable state (reward/entry model fields, vanilla `CalcCost`/upgrade-roll RNG advancement, grab-bag consumption mirroring the vanilla pull). Mod-only flags live in memory (weak tables); installing or uninstalling mid-run is always safe.
 - **Discovery = candidate-click only.** Pickers register as `ModSeenGate` anchors so rendering/hovering a roster never marks items seen; clicking an item as your pending candidate is the only reveal.
-- **Multiplayer**: features are singleplayer-gated (`Players.Count == 1`) unless a vanilla sync channel exists — the treasure chest rides the vanilla index-vote action, so it is MP-safe when every client runs the mod.
+- **Multiplayer**: features are singleplayer-gated (`Players.Count == 1`) unless a lockstep sync channel exists — the treasure chest rides the vanilla index-vote action; the Ancient picker rides the networked dev-console action (`ConsoleCmdGameAction`) with a mod-registered `AbstractConsoleCmd` (DevConsole loads mod subclasses officially). Either way, MP features require every client to run the mod.
 
 | File | Role |
 |---|---|
@@ -56,7 +56,8 @@ Design invariants every feature follows — do not break these:
 | `ModPotionPickerUi.cs`, `ModRelicPickerUi.cs` | Compendium-scene pickers (Potion Lab / Relic Collection) serving rewards, treasure and shop via `Attach(host, player, valid)`. |
 | `TreasureChestPickerPatch.cs` | Feature #3.1: shaded treasure table; round-based picking over the deterministically expanded shared vote list; vanilla RPS fights; losers re-pick. |
 | `ShopPickerPatch.cs` | Feature #4: merchant shade-and-assign slots — assignment mirrors each entry's vanilla stock path; restock re-shades. |
-| `AncientPickerPatch.cs` | Feature #5: pick your Ancient — `NMapScreen.OnMapPointSelectedLocally` seam on the act-start Ancient node; pool mirrors `ActModel.GenerateRooms` (unlocked natives + dealt shared subset, so act 1 = Neow-only and modifier scenarios never see a picker); writes `RoomSet.Ancient` before vanilla travel. SP-only (MP keeps one canonical event per room). |
+| `AncientPickerPatch.cs` | Feature #5: pick your Ancient — `NMapScreen.OnMapPointSelectedLocally` seam on the act-start Ancient node; pool mirrors `ActModel.GenerateRooms` (unlocked natives + dealt shared subset, so act 1 = Neow-only and modifier scenarios never see a picker). SP: writes `RoomSet.Ancient` before vanilla travel. MP: broadcasts the pick via `AncientPickConsoleCmd` before the travel vote. |
+| `AncientPickSyncCmd.cs` | Feature #5 MP: `rl_ancient` networked console command (vanilla `ConsoleCmdGameAction` wire, lockstep, sender-attributed) + `AncientPickSync` pick map + `EventSynchronizer.BeginEvent` substitution so each player's event clones from their pick. Zero save writes — reload degrades to the saved vanilla roll. All clients must run the mod. |
 | `ModAncientPickerUi.cs` | "Select an Ancient" modal over the map screen: custom row list (map icon, name, epithet, home act), hover tips listing every option the Ancient can offer, vanilla roll pre-selected. |
 
 ## Modding Conventions
