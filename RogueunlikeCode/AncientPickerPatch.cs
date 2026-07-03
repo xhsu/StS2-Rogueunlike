@@ -89,24 +89,34 @@ public static class AncientPickerPatch
         _pickerOpen = true;
         try
         {
-            ModAncientPickerUi ui = ModAncientPickerUi.Attach(screen, runState.UnlockState, valid, act.Ancient);
-            AncientEventModel? choice = await ui.Result;
-            if (choice == null || !GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
+            if (LocalContext.GetMe(runState) is not Player me)
+            {
+                MainFile.Logger.Error("[ancient picker] local player not found; vanilla travel");
+                return;
+            }
+            ModAncientPickerUi ui = ModAncientPickerUi.Attach(screen, runState.UnlockState, valid, act.Ancient, me);
+            AncientPickResult? pick = await ui.Result;
+            if (pick == null || !GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
                 return; // cancelled (or the map died under us): stay on the map, node re-clickable
+            AncientEventModel choice = pick.Ancient;
             if (runState.Players.Count > 1)
             {
-                // MP (real or fake): broadcast the pick through the lockstep queue. It is
-                // enqueued BEFORE the travel vote below, so every client records it before
-                // room creation. Shared/saved state stays untouched (see file header).
-                Player me = LocalContext.GetMe(runState);
+                // MP (real or fake): broadcast pick + designations through the lockstep
+                // queue. Enqueued BEFORE the travel vote below, so every client records
+                // them before room creation. Shared/saved state stays untouched.
+                string cmd = $"{AncientPickConsoleCmd.Name} {choice.Id.Entry}"
+                    + string.Concat(pick.Options.Select(o => $" {o.Slot}:{o.Option.Identity}"));
                 RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(
-                    new ConsoleCmdGameAction(me, $"{AncientPickConsoleCmd.Name} {choice.Id.Entry}", inCombat: false));
+                    new ConsoleCmdGameAction(me, cmd, inCombat: false));
             }
             else
             {
                 act._rooms.Ancient = choice; // vanilla-reachable: the field GenerateRooms rolls, saved as AncientId
+                AncientPickSync.RecordOptions(me.NetId, choice.Id.Entry,
+                    pick.Options.Select(o => (o.Slot, o.Option.Identity)).ToList());
             }
-            MainFile.Logger.Info($"[ancient picker] act {runState.CurrentActIndex + 1} ancient pick: {choice.Id}");
+            MainFile.Logger.Info($"[ancient picker] act {runState.CurrentActIndex + 1} ancient pick: "
+                + $"{choice.Id} ({pick.Options.Count} designation(s))");
             _passThrough = true;
             try
             {

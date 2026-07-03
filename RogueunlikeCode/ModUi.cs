@@ -69,7 +69,14 @@ internal static class ModUi
     {
         foreach (Godot.Collections.Dictionary conn in
                  back.GetSignalConnectionList(NClickableControl.SignalName.Released))
-            back.Disconnect(NClickableControl.SignalName.Released, conn["callable"].AsCallable());
+        {
+            // IsConnected guard: on a cold-instantiated scene the list can report a
+            // scene-authored connection the engine refuses to disconnect (logged as a
+            // "nonexistent connection" error in godot.log otherwise).
+            Callable callable = conn["callable"].AsCallable();
+            if (back.IsConnected(NClickableControl.SignalName.Released, callable))
+                back.Disconnect(NClickableControl.SignalName.Released, callable);
+        }
         back.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => onBack()));
         back.MoveToHidePosition();
         back.Enable();
