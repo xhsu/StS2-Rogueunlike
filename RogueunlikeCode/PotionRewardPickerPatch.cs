@@ -21,12 +21,14 @@ namespace Rogueunlike.RogueunlikeCode;
 // SelectLocalReward is test-mode only), so these three patches are the whole seam.
 public static class PotionRewardPicker
 {
-    // ponytail: multiplayer keeps vanilla behavior. Remote peers re-run OnSelect with
-    // their own deterministically-rolled potion, so a free local pick would desync;
-    // syncing the choice needs a net message, add one if MP ever matters.
+    // Multiplayer: remote peers re-run OnSelect against their replica of this reward, so
+    // the pick is broadcast (RewardPickMessage, same FIFO channel as the vanilla claim)
+    // right before the claim. Rewards a claim couldn't address on the wire (nested in a
+    // linked set) stay vanilla in MP — the same rows vanilla itself syncs by index.
     public static bool IsActiveFor(Reward? reward) =>
         reward is PotionReward { IsPopulated: true } potionReward
-        && potionReward.Player.RunState.Players.Count == 1;
+        && (potionReward.Player.RunState.Players.Count == 1
+            || ModPickNet.TryResolveWireAddress(potionReward, out _, out _));
 }
 
 // Replaces the take-flow: pick first, then run the vanilla claim with the picked potion.
@@ -67,7 +69,23 @@ public static class PotionRewardPickPatch
             return;
         }
         if (choice != null)
-            reward.Potion = choice.ToMutable();
+        {
+            // MP: substitute ONLY when peers will too — they apply the pick to their
+            // replica before the vanilla claim (sent next, same channel, FIFO) grants it.
+            // A local-only substitution would desync; the roll is the safe fallback.
+            if (reward.Player.RunState.Players.Count > 1)
+            {
+                if (ModPickNet.TryResolveWireAddress(reward, out int setId, out int rewardIndex))
+                {
+                    reward.Potion = choice.ToMutable();
+                    ModPickNet.SendRewardPick(setId, rewardIndex, isRelic: false, choice.Id.Entry);
+                }
+                else
+                    MainFile.Logger.Error("[potion picker] pick not wire-addressable; vanilla roll kept");
+            }
+            else
+                reward.Potion = choice.ToMutable();
+        }
         // Re-enter the vanilla GetReward (procure + belt animation + claim/skip signals).
         // The flag makes the prefix wave the recursive call through; it is reset right
         // after the synchronous kick-off, before any other click can be processed.

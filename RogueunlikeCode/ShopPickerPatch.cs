@@ -40,11 +40,16 @@ namespace Rogueunlike.RogueunlikeCode;
 /// reward pickers, one room deeper.
 ///
 /// Save-safety: every write lands in vanilla-reachable state (the entry's stocked
-/// model, vanilla CalcCost RNG advancement, feature-#3-style grab-bag consumption of
+/// model, vanilla CalcCost RNG advancement, stock-pull-style grab-bag consumption of
 /// the assigned relic). The assigned-once flags live in memory only — mid-shop
 /// save/reload re-rolls the room vanilla-style, and install/uninstall mid-run is safe.
-/// Singleplayer only (per-player shop state has no vanilla sync channel), and only the
-/// real merchant room — event shops (FakeMerchant) stay vanilla.
+/// Only the real merchant room — event shops (FakeMerchant) stay vanilla.
+///
+/// Multiplayer: every player assigns their OWN shop (each client shows only its local
+/// inventory; purchases replicate by resulting model, so a picked item propagates like
+/// any rolled one). The assignment itself is broadcast (ShopAssignMessage) and replayed
+/// on every client's replica of the sender's inventory, because it consumes grab-bag /
+/// Shops-rng / card-creation state that feeds deterministic rolls later.
 /// </summary>
 public static class ShopPicker
 {
@@ -69,26 +74,17 @@ public static class ShopPicker
     [HarmonyPatch(typeof(MerchantInventory), nameof(MerchantInventory.CreateForNormalMerchant))]
     public static class StockPatch
     {
-        static bool IsActiveFor(Player player) => player.RunState.Players.Count == 1;
-
         // The entries mark their rolls seen while stocking (before any shop UI exists to
-        // anchor suppression on) — mute discovery for the whole roll.
-        static void Prefix(Player player)
-        {
-            if (IsActiveFor(player))
-                ModSeenGate.PushSuppression();
-        }
+        // anchor suppression on) — mute discovery for the whole roll. Unconditional: in
+        // multiplayer EVERY player's inventory stocks on EVERY client, and the vanilla
+        // SetModel marking is not IsMe-gated — without this, teammates' shop rolls would
+        // leak into this client's compendium save (a vanilla leak this closes).
+        static void Prefix() => ModSeenGate.PushSuppression();
 
-        static void Finalizer(Player player)
-        {
-            if (IsActiveFor(player))
-                ModSeenGate.PopSuppression(); // finalizer: an exception must not mute discovery forever
-        }
+        static void Finalizer() => ModSeenGate.PopSuppression(); // finalizer: an exception must not mute discovery forever
 
-        static void Postfix(Player player, MerchantInventory __result)
+        static void Postfix(MerchantInventory __result)
         {
-            if (!IsActiveFor(player))
-                return;
             ActiveInventories.TryAdd(__result, Marker);
             foreach (MerchantEntry entry in __result.AllEntries)
                 if (entry is MerchantCardEntry or MerchantRelicEntry or MerchantPotionEntry)
@@ -202,7 +198,19 @@ public static class ShopPicker
         CardModel? choice = await ModShopCardPickerUi.Attach(slot, player, valid, pool).Result;
         if (choice == null || !GodotObject.IsInstanceValid(slot) || !entry.IsStocked)
             return;
+        if (!ModPickNet.TryBroadcastShopAssign(entry, choice.Id.Entry))
+        {
+            MainFile.Logger.Error("[shop picker] card assignment not wire-addressable; slot stays shaded");
+            return; // MP without a synced replay would diverge card-creation state
+        }
         ModSeenGate.MarkPicked(choice);
+        ApplyCardAssignment(entry, choice);
+    }
+
+    // The assignment mutation, replayed verbatim on remote clients (ModNetMsg).
+    internal static void ApplyCardAssignment(MerchantCardEntry entry, CardModel choice)
+    {
+        Player player = entry._player;
         // Mirror Populate: fresh run card, the (never-succeeding) shop upgrade roll,
         // the merchant reward-modifier hook, then the vanilla price for the new card.
         CardModel card = player.RunState.CreateCard(choice, player);
@@ -236,10 +244,22 @@ public static class ShopPicker
         RelicModel? choice = await ModRelicPickerUi.Attach(slot, player, valid).Result;
         if (choice == null || !GodotObject.IsInstanceValid(slot) || !entry.IsStocked)
             return;
+        if (!ModPickNet.TryBroadcastShopAssign(entry, choice.Id.Entry))
+        {
+            MainFile.Logger.Error("[shop picker] relic assignment not wire-addressable; slot stays shaded");
+            return; // MP without a synced replay would diverge the grab bags
+        }
         ModSeenGate.MarkPicked(choice);
+        ApplyRelicAssignment(entry, choice);
+    }
+
+    // The assignment mutation, replayed verbatim on remote clients (ModNetMsg).
+    internal static void ApplyRelicAssignment(MerchantRelicEntry entry, RelicModel choice)
+    {
+        Player player = entry._player;
         entry.SetModel(choice.ToMutable()); // vanilla stock path: CalcCost + seen-mark inside
         // The roll already left the bags at stock time; consume the pick too so it can't
-        // drop again this run (mirrors PullNextRelicFromBack, same as feature #3).
+        // drop again this run (mirrors PullNextRelicFromBack, the vanilla stock pull).
         player.RelicGrabBag.Remove(choice);
         player.RunState.SharedRelicGrabBag.Remove(choice);
         Assigned.TryAdd(entry, Marker);
@@ -263,7 +283,18 @@ public static class ShopPicker
         PotionModel? choice = await ModPotionPickerUi.Attach(slot, player, valid).Result;
         if (choice == null || !GodotObject.IsInstanceValid(slot) || !entry.IsStocked)
             return;
+        if (!ModPickNet.TryBroadcastShopAssign(entry, choice.Id.Entry))
+        {
+            MainFile.Logger.Error("[shop picker] potion assignment not wire-addressable; slot stays shaded");
+            return; // MP without a synced replay would diverge the Shops rng
+        }
         ModSeenGate.MarkPicked(choice);
+        ApplyPotionAssignment(entry, choice);
+    }
+
+    // The assignment mutation, replayed verbatim on remote clients (ModNetMsg).
+    internal static void ApplyPotionAssignment(MerchantPotionEntry entry, PotionModel choice)
+    {
         entry.Model = choice.ToMutable(); // mirror the stock ctor...
         entry.CalcCost();                 // ...vanilla price for the new rarity
         Assigned.TryAdd(entry, Marker);

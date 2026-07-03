@@ -18,13 +18,14 @@ namespace Rogueunlike.RogueunlikeCode;
 // vanilla. Mirrors the potion picker (feature #2) patch-for-patch.
 public static class RelicRewardPicker
 {
-    // ponytail: singleplayer only, same desync reasoning as PotionRewardPicker.
+    // Multiplayer synced like the potion picker (RewardPickMessage before the claim).
     // Predetermined relics (e.g. event purchases like FakeMerchant) stay vanilla:
     // there the player already chose that specific relic.
     public static bool IsActiveFor(Reward? reward) =>
         reward is RelicReward { IsPopulated: true } relicReward
         && relicReward._predeterminedRelic == null
-        && relicReward.Player.RunState.Players.Count == 1;
+        && (relicReward.Player.RunState.Players.Count == 1
+            || ModPickNet.TryResolveWireAddress(relicReward, out _, out _));
 }
 
 // Replaces the take-flow: pick first, then run the vanilla claim with the picked relic.
@@ -66,11 +67,21 @@ public static class RelicRewardPickPatch
         }
         if (choice != null)
         {
-            reward._relic = choice.ToMutable();
-            // The roll already left the grab bag in Populate(); consume the pick too so
-            // it can't drop again later this run (mirrors RelicFactory.PullNextRelicFromFront).
-            reward.Player.RelicGrabBag.Remove(choice);
-            reward.Player.RunState.SharedRelicGrabBag.Remove(choice);
+            // No bag consumption here: the claim's RelicCmd.Obtain removes the granted
+            // relic from both grab bags (by ModelId, stackable-aware) on every client.
+            // MP: substitute ONLY when peers will too (see the potion picker's note).
+            if (reward.Player.RunState.Players.Count > 1)
+            {
+                if (ModPickNet.TryResolveWireAddress(reward, out int setId, out int rewardIndex))
+                {
+                    reward._relic = choice.ToMutable();
+                    ModPickNet.SendRewardPick(setId, rewardIndex, isRelic: true, choice.Id.Entry);
+                }
+                else
+                    MainFile.Logger.Error("[relic picker] pick not wire-addressable; vanilla roll kept");
+            }
+            else
+                reward._relic = choice.ToMutable();
         }
         // Re-enter the vanilla GetReward (claim + relic fly-to-inventory animation).
         // The flag makes the prefix wave the recursive call through; it is reset right
