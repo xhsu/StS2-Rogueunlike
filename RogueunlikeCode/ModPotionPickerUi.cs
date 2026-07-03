@@ -236,11 +236,13 @@ public partial class ModPotionPickerUi : Control
             category.Visible = _searchEntries.Any(e => e.category == category && e.pickable && e.holder.Visible);
     }
 
+    // Search results are pickable-only — searching means looking for something to PICK;
+    // the darkened/locked context cast only clutters results (user rule, 2026-07-03).
     private void OnQueryChanged(string query)
     {
         string canon = ModSearch.Canon(query);
-        foreach ((NLabPotionHolder holder, _, string text, _) in _searchEntries)
-            holder.Visible = canon.Length == 0 || ModSearch.Matches(text, canon);
+        foreach ((NLabPotionHolder holder, _, string text, bool pickable) in _searchEntries)
+            holder.Visible = canon.Length == 0 || (pickable && ModSearch.Matches(text, canon));
         RefreshCategoryVisibility();
         if (_selected != null && !_selected.IsVisibleInTree())
         {

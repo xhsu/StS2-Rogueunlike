@@ -261,11 +261,13 @@ public partial class ModRelicPickerUi : Control
             cat.Visible = _searchEntries.Any(e => e.pickable && e.entry.Visible && e.cats.Contains(cat));
     }
 
+    // Search results are pickable-only — searching means looking for something to PICK;
+    // the darkened/locked context cast only clutters results (user rule, 2026-07-03).
     private void OnQueryChanged(string query)
     {
         string canon = ModSearch.Canon(query);
-        foreach ((NRelicCollectionEntry entry, _, string text, _) in _searchEntries)
-            entry.Visible = canon.Length == 0 || ModSearch.Matches(text, canon);
+        foreach ((NRelicCollectionEntry entry, _, string text, bool pickable) in _searchEntries)
+            entry.Visible = canon.Length == 0 || (pickable && ModSearch.Matches(text, canon));
         RefreshCategoryVisibility();
         if (_selected != null && !_selected.IsVisibleInTree())
         {

@@ -183,14 +183,21 @@ public abstract partial class ModCardGridPicker : Control
 
     // ---- selection ----
 
+    // Selection visuals run on the clicked holder's own card node, not only through
+    // Highlight/UnhighlightCard: the grid resolves model→node with a FirstOrDefault scan
+    // over its sliding window (hidden recycled holders keep stale models), so the direct
+    // node is the one authority for what's under the cursor. The grid calls stay for
+    // their bookkeeping — _highlightedCards is what re-applies on scroll recycle.
     private void OnCardClicked(NCardHolder holder)
     {
         CardModel? card = holder.CardModel;
         if (card == null || !_pickable.Contains(card))
             return;
+        NCard? clicked = holder.CardNode;
         if (_pending == card) // click again to deselect
         {
             _grid.UnhighlightCard(card);
+            clicked?.CardHighlight.AnimHide();
             _pending = null;
             _confirm.Disable();
             return;
@@ -198,15 +205,17 @@ public abstract partial class ModCardGridPicker : Control
         if (_pending != null)
             _grid.UnhighlightCard(_pending);
         _grid.HighlightCard(card);
+        if (clicked != null)
+        {
+            if (_grid.GetCardNode(card) != clicked)
+                MainFile.Logger.Info($"[card picker] grid lookup missed {card.Id}; highlight applied directly");
+            clicked.CardHighlight.AnimShow();
+        }
         _pending = card;
         _confirm.Enable();
         ModSeenGate.MarkPicked(card); // candidacy is the reveal (see ModSeenGate)
-        if (_unseen.Remove(card)) // discovered now — stop advertising it as new
-        {
-            NCard? node = _grid.GetCardNode(card);
-            if (node != null)
-                node._sparkles.Visible = false;
-        }
+        if (_unseen.Remove(card) && clicked != null) // discovered now — stop advertising it as new
+            clicked._sparkles.Visible = false;
     }
 
     // NCardGrid derives its column count from its laid-out width; a freshly re-parented grid
@@ -274,12 +283,14 @@ public abstract partial class ModCardGridPicker : Control
     }
 
     // Single funnel for (re)filling the grid: applies the search filter and the current
-    // sort, and keeps the pending pick consistent when the filter hides it.
+    // sort, and keeps the pending pick consistent when the filter hides it. Search
+    // results are pickable-only — searching means looking for something to PICK; the
+    // darkened/locked context cast only clutters results (user rule, 2026-07-03).
     protected void RefreshCards()
     {
         List<CardModel> show = _query.Length == 0
             ? new List<CardModel>(_shown)
-            : _shown.Where(c => ModSearch.Matches(SearchableOf(c), _query)).ToList();
+            : _shown.Where(c => _pickable.Contains(c) && ModSearch.Matches(SearchableOf(c), _query)).ToList();
         _grid.SetCards(show, PileType.None, new List<SortingOrders>(_sort));
         if (_pending == null)
             return;
