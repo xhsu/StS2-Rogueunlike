@@ -56,6 +56,8 @@ Design invariants every feature follows — do not break these:
 | `ModPotionPickerUi.cs`, `ModRelicPickerUi.cs` | Compendium-scene pickers (Potion Lab / Relic Collection) serving rewards, treasure and shop via `Attach(host, player, valid)`. |
 | `TreasureChestPickerPatch.cs` | Feature #3.1: shaded treasure table; round-based picking over the deterministically expanded shared vote list; vanilla RPS fights; losers re-pick. |
 | `ShopPickerPatch.cs` | Feature #4: merchant shade-and-assign slots — assignment mirrors each entry's vanilla stock path; restock re-shades. |
+| `AncientPickerPatch.cs` | Feature #5: pick your Ancient — `NMapScreen.OnMapPointSelectedLocally` seam on the act-start Ancient node; pool mirrors `ActModel.GenerateRooms` (unlocked natives + dealt shared subset, so act 1 = Neow-only and modifier scenarios never see a picker); writes `RoomSet.Ancient` before vanilla travel. SP-only (MP keeps one canonical event per room). |
+| `ModAncientPickerUi.cs` | "Select an Ancient" modal over the map screen: custom row list (map icon, name, epithet, home act), hover tips listing every option the Ancient can offer, vanilla roll pre-selected. |
 
 ## Modding Conventions
 

@@ -105,6 +105,7 @@ internal static class ModUi
     public static string SelectCardLabel => Loc("ROGUEUNLIKE.SELECT_CARD.label", "Select a Card");
     public static string SelectRelicLabel => Loc("ROGUEUNLIKE.SELECT_RELIC.label", "Select a Relic");
     public static string SelectPotionLabel => Loc("ROGUEUNLIKE.SELECT_POTION.label", "Select a Potion");
+    public static string SelectAncientLabel => Loc("ROGUEUNLIKE.SELECT_ANCIENT.label", "Select an Ancient");
 
     // ---- scene scavenging ----
 
