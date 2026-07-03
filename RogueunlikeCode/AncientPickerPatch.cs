@@ -46,6 +46,9 @@ public static class AncientPickerPatch
     private static bool _passThrough;
     private static bool _pickerOpen;
 
+    /// <summary>True while the Ancient picker modal is up (see MapInputGatePatch).</summary>
+    internal static bool PickerOpen => _pickerOpen;
+
     static bool Prefix(NMapScreen __instance, NMapPoint point)
     {
         if (_passThrough)
@@ -117,6 +120,7 @@ public static class AncientPickerPatch
             }
             MainFile.Logger.Info($"[ancient picker] act {runState.CurrentActIndex + 1} ancient pick: "
                 + $"{choice.Id} ({pick.Options.Count} designation(s))");
+            RefreshNodeIcon(point, choice);
             _passThrough = true;
             try
             {
@@ -132,4 +136,35 @@ public static class AncientPickerPatch
             _pickerOpen = false;
         }
     }
+
+    // The starting node (NAncientMapPoint) painted the vanilla roll's icon at map build;
+    // repaint it with the pick so the travel animation (and, in MP, the wait-for-votes
+    // map) shows who you will actually meet. Local cosmetics only — in MP each client
+    // shows its own player's pick. The first-run GoldenPath map uses a plain node
+    // instead; the cast just misses and nothing changes (the picker never opens there).
+    private static void RefreshNodeIcon(NMapPoint point, AncientEventModel choice)
+    {
+        try
+        {
+            if (point is not NAncientMapPoint node)
+                return;
+            node._icon.Texture = choice.MapIcon;
+            node._outline.Texture = choice.MapIconOutline;
+        }
+        catch (System.Exception e)
+        {
+            MainFile.Logger.Error($"[ancient picker] node icon refresh failed (cosmetic): {e.Message}");
+        }
+    }
+}
+
+// The picker is a CHILD of NMapScreen, and gui events its controls don't consume bubble
+// up the ancestor chain into NMapScreen._GuiInput — whose handlers scroll the map on
+// wheel, pan it on left-drag and start map drawings on right/middle click, all under the
+// modal. Gate the whole handler while the picker is up; the picker's own scrolling and
+// clicks are handled by its children before anything reaches the map screen.
+[HarmonyPatch(typeof(NMapScreen), "_GuiInput")]
+public static class MapInputGatePatch
+{
+    static bool Prefix() => !AncientPickerPatch.PickerOpen;
 }
