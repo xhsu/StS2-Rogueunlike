@@ -85,6 +85,15 @@ public static class ShopPicker
 
         static void Postfix(MerchantInventory __result)
         {
+            // No verified mod handshake in real MP -> assignments couldn't replay on
+            // every client, so don't shade at all: the shop stays pure vanilla. (The
+            // seen-suppression prefix above stays unconditional — that closes a vanilla
+            // leak and is per-client only.)
+            if (!ModWireCheck.SyncReady(RunManager.Instance?.State))
+            {
+                MainFile.Logger.Info("[shop picker] wire check not verified; shop stays vanilla");
+                return;
+            }
             ActiveInventories.TryAdd(__result, Marker);
             foreach (MerchantEntry entry in __result.AllEntries)
                 if (entry is MerchantCardEntry or MerchantRelicEntry or MerchantPotionEntry)

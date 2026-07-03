@@ -24,6 +24,7 @@ public static class RelicRewardPicker
     public static bool IsActiveFor(Reward? reward) =>
         reward is RelicReward { IsPopulated: true } relicReward
         && relicReward._predeterminedRelic == null
+        && ModWireCheck.SyncReady(relicReward.Player.RunState)
         && (relicReward.Player.RunState.Players.Count == 1
             || ModPickNet.TryResolveWireAddress(relicReward, out _, out _));
 }
@@ -72,13 +73,14 @@ public static class RelicRewardPickPatch
             // MP: substitute ONLY when peers will too (see the potion picker's note).
             if (reward.Player.RunState.Players.Count > 1)
             {
-                if (ModPickNet.TryResolveWireAddress(reward, out int setId, out int rewardIndex))
+                if (ModWireCheck.SyncReady(reward.Player.RunState)
+                    && ModPickNet.TryResolveWireAddress(reward, out int setId, out int rewardIndex))
                 {
                     reward._relic = choice.ToMutable();
                     ModPickNet.SendRewardPick(setId, rewardIndex, isRelic: true, choice.Id.Entry);
                 }
                 else
-                    MainFile.Logger.Error("[relic picker] pick not wire-addressable; vanilla roll kept");
+                    MainFile.Logger.Error("[relic picker] pick not syncable; vanilla roll kept");
             }
             else
                 reward._relic = choice.ToMutable();

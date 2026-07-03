@@ -52,7 +52,7 @@ public static class CardRewardScreenOverhaul
         }
         catch (System.Exception e)
         {
-            MainFile.Logger.Error($"Card reward overhaul failed, using vanilla screen: {e}");
+            MainFile.Logger.Error($"[card reward ui] overhaul failed, using vanilla screen: {e}");
         }
 
         // Scene couldn't be borrowed (or threw) — fall back to vanilla.

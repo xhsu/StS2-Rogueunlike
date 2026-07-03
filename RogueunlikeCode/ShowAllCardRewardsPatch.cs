@@ -83,7 +83,7 @@ public static class ShowAllCardRewardsPatch
             {
                 // A relic (or another mod) still choked on the full-pool list; lose that
                 // bonus rather than the whole room-end flow (soft-lock / black screen).
-                MainFile.Logger.Error($"ShowAllCardRewards: reward-modifier hook failed, its bonus was skipped: {e}");
+                MainFile.Logger.Error($"[card rewards] reward-modifier hook failed, its bonus was skipped: {e}");
             }
 
             // Display: hook-added entries (Lasting Candy's bonus) always show and
@@ -102,7 +102,7 @@ public static class ShowAllCardRewardsPatch
         }
         catch (Exception e)
         {
-            MainFile.Logger.Error($"ShowAllCardRewards failed, falling back to vanilla reward: {e}");
+            MainFile.Logger.Error($"[card rewards] full-pool generation failed, falling back to vanilla reward: {e}");
             return true;
         }
     }

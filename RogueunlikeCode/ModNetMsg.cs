@@ -136,6 +136,7 @@ internal static class ModPickNet
     static void AfterCtor(RewardsSetSynchronizer __instance)
     {
         _bufferedPicks.Clear(); // fresh run/reload: no stale picks may leak into reused set ids
+        ModWireCheck.Reset();   // new run/load: mod-set + wire-id agreement must be re-earned
         __instance._messageBuffer.RegisterMessageHandler<RewardPickMessage>(HandleRewardPick);
         __instance._messageBuffer.RegisterMessageHandler<ShopAssignMessage>(HandleShopAssign);
     }
@@ -200,6 +201,8 @@ internal static class ModPickNet
 
     private static void HandleRewardPick(RewardPickMessage msg, ulong senderId)
     {
+        if (ModWireCheck.Broken)
+            return; // wire ids disagree across clients: this "message" may be another mod's bytes
         try
         {
             RewardsSetSynchronizer sync = RunManager.Instance.RewardsSetSynchronizer;
@@ -234,6 +237,7 @@ internal static class ModPickNet
     [HarmonyPatch(typeof(RewardsSetSynchronizer), nameof(RewardsSetSynchronizer.BeginRewardsSet))]
     static void BeforeBeginRewardsSet(RewardsSetSynchronizer __instance, RewardsSet set)
     {
+        ModWireCheck.TryAnnounce(RunManager.Instance?.State); // backstop announce trigger
         if (_bufferedPicks.Count == 0)
             return;
         try
@@ -305,6 +309,8 @@ internal static class ModPickNet
             Player player = entry._player;
             if (player.RunState.Players.Count == 1)
                 return true; // singleplayer: nothing to sync
+            if (!ModWireCheck.SyncReady(player.RunState))
+                return false; // handshake not verified: remotes may not replay — abort
             if (ResolveInventory(player) is not MerchantInventory inventory)
                 return false;
             int index = IndexOfEntry(inventory, entry);
@@ -328,6 +334,8 @@ internal static class ModPickNet
 
     private static void HandleShopAssign(ShopAssignMessage msg, ulong senderId)
     {
+        if (ModWireCheck.Broken)
+            return; // wire ids disagree across clients: this "message" may be another mod's bytes
         // Marking-seen guard: the vanilla stock/assign path marks models seen
         // unconditionally — a teammate's pick must not enter THIS client's compendium.
         ModSeenGate.PushSuppression();

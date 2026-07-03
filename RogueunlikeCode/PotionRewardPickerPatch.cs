@@ -27,6 +27,7 @@ public static class PotionRewardPicker
     // linked set) stay vanilla in MP — the same rows vanilla itself syncs by index.
     public static bool IsActiveFor(Reward? reward) =>
         reward is PotionReward { IsPopulated: true } potionReward
+        && ModWireCheck.SyncReady(potionReward.Player.RunState)
         && (potionReward.Player.RunState.Players.Count == 1
             || ModPickNet.TryResolveWireAddress(potionReward, out _, out _));
 }
@@ -75,13 +76,14 @@ public static class PotionRewardPickPatch
             // A local-only substitution would desync; the roll is the safe fallback.
             if (reward.Player.RunState.Players.Count > 1)
             {
-                if (ModPickNet.TryResolveWireAddress(reward, out int setId, out int rewardIndex))
+                if (ModWireCheck.SyncReady(reward.Player.RunState)
+                    && ModPickNet.TryResolveWireAddress(reward, out int setId, out int rewardIndex))
                 {
                     reward.Potion = choice.ToMutable();
                     ModPickNet.SendRewardPick(setId, rewardIndex, isRelic: false, choice.Id.Entry);
                 }
                 else
-                    MainFile.Logger.Error("[potion picker] pick not wire-addressable; vanilla roll kept");
+                    MainFile.Logger.Error("[potion picker] pick not syncable; vanilla roll kept");
             }
             else
                 reward.Potion = choice.ToMutable();

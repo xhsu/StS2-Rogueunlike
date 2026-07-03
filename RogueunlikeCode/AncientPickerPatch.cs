@@ -67,6 +67,8 @@ public static class AncientPickerPatch
             ActModel act = runState.Act;
             if (!act._rooms.HasAncient)
                 return true; // first-run tutorial layout has no Ancient rolled
+            if (!ModWireCheck.SyncReady(runState))
+                return true; // real MP without a verified mod handshake: vanilla travel
             List<AncientEventModel> valid = ValidPool(act, runState);
             if (valid.Count == 0)
                 return true;

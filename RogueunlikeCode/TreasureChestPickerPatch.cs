@@ -94,6 +94,14 @@ public static class TreasureChestPicker
             if (relics == null || relics.Count == 0)
                 return; // empty chest (SilverCrucible etc.) — leave it empty
             RolledCount = relics.Count;
+            // No verified mod handshake in real MP -> an unverified client would not
+            // expand the shared vote list identically; leave Pool null = vanilla chest
+            // (the same degradation the expansion-failure path below uses).
+            if (!ModWireCheck.SyncReady(__instance._playerCollection.Players.FirstOrDefault()?.RunState))
+            {
+                MainFile.Logger.Info("[chest picker] wire check not verified; vanilla chest");
+                return;
+            }
             try
             {
                 // Everything PullFromFront could still return for a chest roll: the shared
