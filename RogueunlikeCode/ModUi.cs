@@ -6,6 +6,7 @@ using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens;
+using MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic;
 using System;
 using System.Collections.Generic;
 
@@ -35,6 +36,20 @@ internal static class ModUi
                && attach is not NTreasureRoom && attach is not NMerchantRoom)
             attach = attach.GetParent();
         attach ??= host.GetTree().Root;
+        // Treasure chest: in MP the screen hides the OS cursor and every player points
+        // with a networked hand sprite (NHandImageCollection, a child of the chest
+        // screen). Mounted on top of the room the picker would cover the hands and
+        // leave the local player with no pointer at all — so insert it INSIDE the
+        // screen, directly below the hand layer: the hands stay everyone's cursor,
+        // over the picker, exactly like over the vanilla relic table.
+        if (attach is NTreasureRoom
+            && FindDescendant<NHandImageCollection>(attach) is { } hands
+            && hands.GetParent() is Node handHost)
+        {
+            handHost.AddChildSafely(picker);
+            handHost.MoveChild(picker, hands.GetIndex());
+            return;
+        }
         attach.AddChildSafely(picker);
     }
 

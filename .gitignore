@@ -488,6 +488,7 @@ $RECYCLE.BIN/
 Directory.Build.props
 /android/
 publish/
+temp/
 
 # Steam Workshop uploader tool (downloaded binary) and staged upload content
 /workshop/uploader/

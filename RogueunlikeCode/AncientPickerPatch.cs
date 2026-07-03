@@ -22,10 +22,14 @@ namespace Rogueunlike.RogueunlikeCode;
 ///
 /// Selection pool = loot pool at current context (never expanded): exactly what
 /// ActModel.GenerateRooms could have rolled for THIS act — the act's unlocked native
-/// Ancients plus the shared-Ancient subset dealt to this act at run start. Act 1's pool
-/// is always {Neow} in vanilla, so the picker never opens there — which also leaves
-/// custom-modifier scenarios (Sealed Deck's pick-10-of-30 rides Neow's option
-/// generation) untouched by construction.
+/// Ancients plus the shared-Ancient subset dealt to this act at run start. The picker
+/// opens whenever there is any real choice: several candidates, or a single candidate
+/// (act 1 is always {Neow}, pre-epoch acts) whose dialogue slots the probe measures as
+/// having variation — the WHO may be forced while the option designations (feature
+/// #5.1, "what I'd like to talk about") are still worth picking. No Ancient is ever
+/// named: events whose options are modifier-built chains rather than slot rolls
+/// (Sealed Deck's Neow) probe to no-variation — the probe stubs modifier option hooks
+/// rather than execute them — and stay pure vanilla.
 ///
 /// Save-safety, singleplayer: the only write is RoomSet.Ancient — the same field
 /// GenerateRooms rolls, serialized as AncientId in the vanilla run save — done BEFORE
@@ -64,8 +68,18 @@ public static class AncientPickerPatch
             if (!act._rooms.HasAncient)
                 return true; // first-run tutorial layout has no Ancient rolled
             List<AncientEventModel> valid = ValidPool(act, runState);
-            if (valid.Count <= 1)
-                return true; // nothing to pick: act 1 (Neow-only), pre-epoch, modifier scenarios
+            if (valid.Count == 0)
+                return true;
+            // Open the picker whenever there is a real choice to make: several
+            // candidates, OR one candidate whose dialogue slots have variation worth
+            // designating (act 1 = {Neow}, pre-epoch acts). Variation is MEASURED by
+            // the probe — no Ancient is named — and modifier-driven options (Sealed
+            // Deck's Neow chain) are stubbed during probing, so they read as
+            // no-variation and that scenario stays pure vanilla.
+            if (valid.Count == 1
+                && (LocalContext.GetMe(runState) is not Player probeMe
+                    || !AncientOptionProbe.HasVariation(probeMe, valid[0])))
+                return true;
             if (_pickerOpen)
                 return false;
             TaskHelper.RunSafely(PickFlow(__instance, point, act, runState, valid));

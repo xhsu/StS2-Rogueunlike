@@ -7,6 +7,8 @@ using MegaCrit.Sts2.Core.Random;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
 
 namespace Rogueunlike.RogueunlikeCode;
 
@@ -45,7 +47,78 @@ public static class AncientOptionProbe
     // flips and small shuffles; 128 draws bounds a miss to (1/2)^128-ish per branch.
     private const int Samples = 128;
 
+    /// <summary>True while SlotPools is sampling — the modifier hook guards key off it.</summary>
+    internal static bool Probing { get; private set; }
+
+    private static bool _guardsInstalled;
+
+    // Modifier-provided event options (ModifierModel.GenerateNeowOption — Sealed Deck's
+    // pick-10-of-30, Draft, Insanity...) run arbitrary code against the RUN'S LIVE
+    // modifier objects, so the probe must observe that they exist without ever executing
+    // them: every implementation gets a prefix that, while probing, returns "no option".
+    // A modifier-driven event therefore probes to empty/1-option pools — no variation,
+    // nothing designatable — with zero per-Ancient or per-modifier knowledge here.
+    // Installed lazily at first probe so modifier types from later-loaded mods are seen.
+    private static void EnsureModifierHookGuards()
+    {
+        if (_guardsInstalled)
+            return;
+        _guardsInstalled = true;
+        try
+        {
+            var harmony = new Harmony("Rogueunlike.AncientOptionProbe");
+            var guard = new HarmonyMethod(typeof(AncientOptionProbe), nameof(GenerateNeowOptionGuard));
+            int patched = 0;
+            foreach (Type type in AccessTools.AllTypes())
+            {
+                if (!typeof(ModifierModel).IsAssignableFrom(type))
+                    continue;
+                MethodInfo? hook = type.GetMethod("GenerateNeowOption",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                if (hook == null || hook.IsAbstract)
+                    continue;
+                harmony.Patch(hook, prefix: guard);
+                patched++;
+            }
+            MainFile.Logger.Info($"[ancient options] probe guards installed on {patched} GenerateNeowOption impl(s)");
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"[ancient options] probe guard install failed: {e}");
+        }
+    }
+
+    static bool GenerateNeowOptionGuard(ref Func<Task>? __result)
+    {
+        if (!Probing)
+            return true;
+        __result = null; // probing observes option structure; it must never run modifier code
+        return false;
+    }
+
+    /// <summary>
+    /// True when designating can change anything: some slot has 2+ possible options.
+    /// This is what makes a one-candidate pool (act 1's Neow, pre-epoch acts) worth a
+    /// picker — measured, never hardcoded per Ancient.
+    /// </summary>
+    public static bool HasVariation(Player player, AncientEventModel canonicalAncient) =>
+        SlotPools(player, canonicalAncient).Any(pool => pool.Count > 1);
+
     public static List<List<AncientOptionInfo>> SlotPools(Player player, AncientEventModel canonicalAncient)
+    {
+        EnsureModifierHookGuards();
+        Probing = true;
+        try
+        {
+            return SlotPoolsInternal(player, canonicalAncient);
+        }
+        finally
+        {
+            Probing = false;
+        }
+    }
+
+    private static List<List<AncientOptionInfo>> SlotPoolsInternal(Player player, AncientEventModel canonicalAncient)
     {
         var pools = new List<List<AncientOptionInfo>>();
         var seen = new List<HashSet<string>>();
