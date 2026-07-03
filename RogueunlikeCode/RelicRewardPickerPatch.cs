@@ -25,9 +25,6 @@ public static class RelicRewardPicker
         reward is RelicReward { IsPopulated: true } relicReward
         && relicReward._predeterminedRelic == null
         && relicReward.Player.RunState.Players.Count == 1;
-
-    public static string SelectRelicLabel =>
-        PotionRewardPicker.Loc("ROGUEUNLIKE.SELECT_RELIC.label", "Select a Relic");
 }
 
 // Replaces the take-flow: pick first, then run the vanilla claim with the picked relic.
@@ -94,7 +91,7 @@ public static class RelicRewardLabelPatch
     {
         if (!__instance.IsNodeReady() || !RelicRewardPicker.IsActiveFor(__instance.Reward))
             return;
-        __instance._label.Text = RelicRewardPicker.SelectRelicLabel;
+        __instance._label.Text = ModUi.SelectRelicLabel;
         // Same darkening the collection uses for not-yet-seen relics.
         foreach (Node child in __instance._iconContainer.GetChildren())
             if (child is TextureRect icon)
@@ -112,8 +109,8 @@ public static class RelicRewardHoverTipPatch
             return true;
         HoverTip tip = default;
         tip.Id = "Rogueunlike.SelectRelic";
-        tip.Title = RelicRewardPicker.SelectRelicLabel;
-        tip.Description = PotionRewardPicker.Loc("ROGUEUNLIKE.SELECT_RELIC.tip",
+        tip.Title = ModUi.SelectRelicLabel;
+        tip.Description = ModUi.Loc("ROGUEUNLIKE.SELECT_RELIC.tip",
             "Opens the Relic Collection so you can take any relic this reward could have rolled. "
             + "Darkened relics cannot drop from this reward. Locked relics have not been unlocked yet.");
         __result = new IHoverTip[] { tip };

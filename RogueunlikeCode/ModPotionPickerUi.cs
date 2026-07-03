@@ -1,5 +1,4 @@
 using Godot;
-using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.Potions;
 using MegaCrit.Sts2.Core.Entities.UI;
@@ -11,8 +10,6 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Potions;
-using MegaCrit.Sts2.Core.Nodes.Rooms;
-using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.PotionLab;
 using MegaCrit.Sts2.Core.Saves;
 using System;
@@ -24,10 +21,11 @@ namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
 /// "Select one potion" overlay: the compendium Potion Lab screen, repurposed as a picker.
+/// Serves the potion reward row (feature #2) and the merchant potion slots (feature #4).
 /// Borrows the game's own potion_lab scene wholesale — rarity sections with localized
 /// headers, hover tips, character-pool outline colours, back ribbon — and shows the full
 /// potion roster in three states:
-///   • pickable — a potion the reward could roll (<see cref="PotionFactory.GetPotionOptions"/>:
+///   • pickable — a potion this source could roll (<see cref="PotionFactory.GetPotionOptions"/>:
 ///     character pool + shared pool, unlocked only — potion rolls are stateless, so this
 ///     IS the whole loot pool, undiscovered ones included); full colour, clickable;
 ///   • locked — progression unlock not reached; the lab's lock icon and "locked" hover
@@ -41,9 +39,6 @@ namespace Rogueunlike.RogueunlikeCode;
 /// </summary>
 public partial class ModPotionPickerUi : Control
 {
-    private static readonly string SelectScene =
-        SceneHelper.GetScenePath("screens/card_selection/simple_card_select_screen");
-
     // ponytail: gaps above/below the search bar within its list row; tune by eye.
     private const float SearchTopGap = 48f;
     private const float SearchBottomGap = 32f;
@@ -71,13 +66,8 @@ public partial class ModPotionPickerUi : Control
     /// </summary>
     public static ModPotionPickerUi Attach(Node host, Player player, HashSet<PotionModel> valid)
     {
-        Node? attach = host;
-        while (attach != null && attach is not NRewardsScreen && attach is not NMerchantRoom)
-            attach = attach.GetParent();
-        attach ??= host.GetTree().Root;
-
         var ui = new ModPotionPickerUi { Name = "ModPotionPickerUi" };
-        attach.AddChildSafely(ui);
+        ModUi.Mount(host, ui);
         try
         {
             ui.Build(player, valid);
@@ -98,32 +88,14 @@ public partial class ModPotionPickerUi : Control
 
     private void Build(Player player, HashSet<PotionModel> valid)
     {
-        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        // Screens outside the ACTIVE screen context get FocusBehaviorRecursive=Disabled
-        // (ScreenContextUtils) — at the merchant that killed the search bar's focus.
-        FocusBehaviorRecursive = FocusBehaviorRecursiveEnum.Enabled;
-        ModSeenGate.SuppressWhile(this); // browsing/hovering the roster must not "discover" it
-
-        // In-run there is no compendium backdrop; supply one. It also swallows every
-        // click aimed at the rewards screen underneath, which makes the picker modal.
-        var dim = new ColorRect { Color = new Color(0f, 0f, 0f, 0.88f) };
-        this.AddChildSafely(dim);
-        dim.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        dim.MouseFilter = MouseFilterEnum.Stop;
+        ModUi.SetupPickerRoot(this);
+        ModUi.AddModalDim(this);
 
         NPotionLab lab = NPotionLab.Create()
             ?? throw new InvalidOperationException("potion_lab scene unavailable");
         this.AddChildSafely(lab); // entering the tree runs _Ready, binding its fields
         lab.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-
-        // The scene's back ribbon is wired to a submenu stack we don't have; rewire to cancel.
-        NBackButton back = lab._backButton;
-        foreach (Godot.Collections.Dictionary conn in
-                 back.GetSignalConnectionList(NClickableControl.SignalName.Released))
-            back.Disconnect(NClickableControl.SignalName.Released, conn["callable"].AsCallable());
-        back.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => Finish(null)));
-        back.MoveToHidePosition();
-        back.Enable();
+        ModUi.RewireBackRibbon(lab._backButton, () => Finish(null));
 
         // What this source could actually roll (passed in), and what's unlocked at all.
         HashSet<PotionModel> unlocked = player.UnlockState.Potions.ToHashSet();
@@ -144,21 +116,11 @@ public partial class ModPotionPickerUi : Control
         RefreshCategoryVisibility(); // hide sections with nothing pickable
         lab._screenContents.InstantlyScrollToTop();
 
-        // Checkmark confirm button, borrowed from the simple-card-select scene (as feature #1).
-        Control select = PreloadManager.Cache.GetScene(SelectScene)
-            .Instantiate<Control>(PackedScene.GenEditState.Disabled);
-        NConfirmButton? confirm = FindDescendant<NConfirmButton>(select);
-        if (confirm == null)
+        _confirm = ModUi.ExtractConfirmButton(this, () =>
         {
-            select.QueueFreeSafely();
-            throw new InvalidOperationException("NConfirmButton not found in donor scene");
-        }
-        confirm.GetParent().RemoveChild(confirm);
-        select.QueueFreeSafely();
-        _confirm = confirm;
-        this.AddChildSafely(_confirm); // self-anchors bottom-right, hidden until Enable()
-        _confirm.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(OnConfirm));
-        _confirm.Disable();
+            if (_selectedModel != null)
+                Finish(_selectedModel);
+        });
 
         // Search bar (the Card Library's widget) in the scrolling flow above the rarity
         // sections — a stretched row hosting the centred bar — so it scrolls away with
@@ -325,27 +287,9 @@ public partial class ModPotionPickerUi : Control
         }
     }
 
-    private void OnConfirm(NButton _)
-    {
-        if (_selectedModel != null)
-            Finish(_selectedModel);
-    }
-
     private void Finish(PotionModel? result)
     {
         _tcs.TrySetResult(result);
         this.QueueFreeSafely();
-    }
-
-    private static T? FindDescendant<T>(Node node) where T : class
-    {
-        foreach (Node child in node.GetChildren())
-        {
-            if (child is T match)
-                return match;
-            if (FindDescendant<T>(child) is T deep)
-                return deep;
-        }
-        return null;
     }
 }

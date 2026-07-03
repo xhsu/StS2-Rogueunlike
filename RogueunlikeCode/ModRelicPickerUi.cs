@@ -1,5 +1,4 @@
 using Godot;
-using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Entities.UI;
@@ -10,8 +9,6 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Relics;
-using MegaCrit.Sts2.Core.Nodes.Rooms;
-using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.RelicCollection;
 using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Saves;
@@ -45,9 +42,6 @@ namespace Rogueunlike.RogueunlikeCode;
 /// </summary>
 public partial class ModRelicPickerUi : Control
 {
-    private static readonly string SelectScene =
-        SceneHelper.GetScenePath("screens/card_selection/simple_card_select_screen");
-
     // ponytail: gaps above/below the search bar within its list row; tune by eye.
     private const float SearchTopGap = 48f;
     private const float SearchBottomGap = 32f;
@@ -74,14 +68,8 @@ public partial class ModRelicPickerUi : Control
     /// </summary>
     public static ModRelicPickerUi Attach(Node host, Player player, HashSet<RelicModel> valid)
     {
-        Node? attach = host;
-        while (attach != null && attach is not NRewardsScreen && attach is not NTreasureRoom
-               && attach is not NMerchantRoom)
-            attach = attach.GetParent();
-        attach ??= host.GetTree().Root;
-
         var ui = new ModRelicPickerUi { Name = "ModRelicPickerUi" };
-        attach.AddChildSafely(ui);
+        ModUi.Mount(host, ui);
         try
         {
             ui.Build(player, valid);
@@ -102,33 +90,14 @@ public partial class ModRelicPickerUi : Control
 
     private void Build(Player player, HashSet<RelicModel> valid)
     {
-        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        // Screens outside the ACTIVE screen context get FocusBehaviorRecursive=Disabled
-        // (ScreenContextUtils) — at the merchant that killed the search bar's focus.
-        // An explicit Enabled on our root overrides the inherited disable.
-        FocusBehaviorRecursive = FocusBehaviorRecursiveEnum.Enabled;
-        ModSeenGate.SuppressWhile(this); // browsing/hovering the roster must not "discover" it
-
-        // In-run there is no compendium backdrop; supply one. It also swallows every
-        // click aimed at the rewards screen underneath, which makes the picker modal.
-        var dim = new ColorRect { Color = new Color(0f, 0f, 0f, 0.88f) };
-        this.AddChildSafely(dim);
-        dim.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        dim.MouseFilter = MouseFilterEnum.Stop;
+        ModUi.SetupPickerRoot(this);
+        ModUi.AddModalDim(this);
 
         NRelicCollection col = NRelicCollection.Create()
             ?? throw new InvalidOperationException("relic_collection scene unavailable");
         this.AddChildSafely(col); // entering the tree runs _Ready, binding its fields
         col.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-
-        // The scene's back ribbon is wired to a submenu stack we don't have; rewire to cancel.
-        NBackButton back = col._backButton;
-        foreach (Godot.Collections.Dictionary conn in
-                 back.GetSignalConnectionList(NClickableControl.SignalName.Released))
-            back.Disconnect(NClickableControl.SignalName.Released, conn["callable"].AsCallable());
-        back.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => Finish(null)));
-        back.MoveToHidePosition();
-        back.Enable();
+        ModUi.RewireBackRibbon(col._backButton, () => Finish(null));
 
         HashSet<RelicModel> unlocked = player.UnlockState.Relics.ToHashSet();
         // Real art for everything: the compendium's "???" mystery state would make the
@@ -154,21 +123,11 @@ public partial class ModRelicPickerUi : Control
 
         col._screenContents.InstantlyScrollToTop();
 
-        // Checkmark confirm button, borrowed from the simple-card-select scene (as feature #1).
-        Control select = PreloadManager.Cache.GetScene(SelectScene)
-            .Instantiate<Control>(PackedScene.GenEditState.Disabled);
-        NConfirmButton? confirm = FindDescendant<NConfirmButton>(select);
-        if (confirm == null)
+        _confirm = ModUi.ExtractConfirmButton(this, () =>
         {
-            select.QueueFreeSafely();
-            throw new InvalidOperationException("NConfirmButton not found in donor scene");
-        }
-        confirm.GetParent().RemoveChild(confirm);
-        select.QueueFreeSafely();
-        _confirm = confirm;
-        this.AddChildSafely(_confirm); // self-anchors bottom-right, hidden until Enable()
-        _confirm.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(OnConfirm));
-        _confirm.Disable();
+            if (_selectedModel != null)
+                Finish(_selectedModel);
+        });
 
         foreach (NRelicCollectionCategory category in categories)
             WireCategory(category, valid);
@@ -231,7 +190,7 @@ public partial class ModRelicPickerUi : Control
     private void WireCategory(NRelicCollectionCategory category, HashSet<RelicModel> valid)
     {
         var entries = new List<NRelicCollectionEntry>();
-        Collect(category, entries);
+        ModUi.Collect(category, entries);
         foreach (NRelicCollectionEntry entry in entries)
         {
             // The collection wires every entry's click to the compendium inspect screen; kill it.
@@ -354,37 +313,9 @@ public partial class ModRelicPickerUi : Control
         }
     }
 
-    private void OnConfirm(NButton _)
-    {
-        if (_selectedModel != null)
-            Finish(_selectedModel);
-    }
-
     private void Finish(RelicModel? result)
     {
         _tcs.TrySetResult(result);
         this.QueueFreeSafely();
-    }
-
-    private static T? FindDescendant<T>(Node node) where T : class
-    {
-        foreach (Node child in node.GetChildren())
-        {
-            if (child is T match)
-                return match;
-            if (FindDescendant<T>(child) is T deep)
-                return deep;
-        }
-        return null;
-    }
-
-    private static void Collect<T>(Node node, List<T> into) where T : class
-    {
-        foreach (Node child in node.GetChildren())
-        {
-            if (child is T match)
-                into.Add(match);
-            Collect(child, into);
-        }
     }
 }

@@ -98,15 +98,7 @@ public abstract partial class ModCardGridPicker : Control
     // ---- assembly steps (call from the subclass Build, in this order) ----
 
     /// <summary>Full-rect root, focus enabled, discovery suppressed while visible.</summary>
-    protected void SetupRoot()
-    {
-        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        // Screens outside the ACTIVE screen context get FocusBehaviorRecursive=Disabled
-        // (ScreenContextUtils) — at the merchant that killed the search bar's focus.
-        // An explicit Enabled on our root overrides the inherited disable.
-        FocusBehaviorRecursive = FocusBehaviorRecursiveEnum.Enabled;
-        ModSeenGate.SuppressWhile(this); // rendering the pool must not "discover" it
-    }
+    protected void SetupRoot() => ModUi.SetupPickerRoot(this);
 
     /// <summary>
     /// The pool's whole cast beyond the pickable loot, shown compendium-style: locked
@@ -141,8 +133,8 @@ public abstract partial class ModCardGridPicker : Control
     {
         Control select = PreloadManager.Cache.GetScene(SelectScene)
             .Instantiate<Control>(PackedScene.GenEditState.Disabled);
-        _grid = Extract<NCardGrid>(select)!;
-        _confirm = Extract<NConfirmButton>(select)!;
+        _grid = ModUi.Extract<NCardGrid>(select)!;
+        _confirm = ModUi.Extract<NConfirmButton>(select)!;
         select.QueueFreeSafely();
         return _grid != null && _confirm != null;
     }
@@ -344,7 +336,7 @@ public abstract partial class ModCardGridPicker : Control
             || _grid.FindChild("ScrollContainer", recursive: true, owned: false) is not Control scroller)
             return;
         var sorters = new List<NCardViewSortButton>();
-        Collect(options, sorters);
+        ModUi.Collect(options, sorters);
         if (sorters.Count < 4)
             return;
 
@@ -382,8 +374,8 @@ public abstract partial class ModCardGridPicker : Control
 
     private void BuildViewUpgrades(Node deck)
     {
-        NTickbox? tick = FindDescendant<NTickbox>(deck);
-        Node? widget = AncestorUnder(deck, tick);
+        NTickbox? tick = ModUi.FindDescendant<NTickbox>(deck);
+        Node? widget = ModUi.AncestorUnder(deck, tick);
         if (tick == null || widget == null)
             return;
         (deck.FindChild("ViewUpgradesLabel", recursive: true, owned: false) as MegaLabel)?.SetTextAutoSize(Loc("VIEW_UPGRADES"));
@@ -395,7 +387,7 @@ public abstract partial class ModCardGridPicker : Control
     private void BuildBottomLabel(Node deck, string text)
     {
         RichTextLabel? label = deck.FindChild("BottomLabel", recursive: true, owned: false) as RichTextLabel;
-        Node? widget = AncestorUnder(deck, label);
+        Node? widget = ModUi.AncestorUnder(deck, label);
         if (label == null || widget == null)
             return;
         Adopt(widget);
@@ -406,7 +398,7 @@ public abstract partial class ModCardGridPicker : Control
     private void BuildBackButton(Node deck)
     {
         NButton? back = deck.FindChild("BackButton", recursive: true, owned: false) as NButton;
-        Node? widget = AncestorUnder(deck, back);
+        Node? widget = ModUi.AncestorUnder(deck, back);
         if (back == null || widget == null)
             return;
         Adopt(widget);
@@ -436,45 +428,4 @@ public abstract partial class ModCardGridPicker : Control
 
     // Vanilla localized string from the game's "gameplay_ui" table (SORT_*, VIEW_UPGRADES, CHOOSE_CARD_HEADER).
     protected static string Loc(string key) => new LocString("gameplay_ui", key).GetRawText();
-
-    // The ancestor of 'n' that is a direct child of 'root' (so its scene-authored position,
-    // which was relative to the full-screen root, is preserved when re-parented into our
-    // full-screen view). Null if 'n' isn't under 'root'.
-    protected static Node? AncestorUnder(Node root, Node? n)
-    {
-        if (n == null)
-            return null;
-        while (n.GetParent() != null && n.GetParent() != root)
-            n = n.GetParent();
-        return n.GetParent() == root ? n : null;
-    }
-
-    protected static T? Extract<T>(Node donor) where T : Node
-    {
-        T? node = FindDescendant<T>(donor);
-        node?.GetParent().RemoveChild(node);
-        return node;
-    }
-
-    protected static T? FindDescendant<T>(Node node) where T : class
-    {
-        foreach (Node child in node.GetChildren())
-        {
-            if (child is T match)
-                return match;
-            if (FindDescendant<T>(child) is T deep)
-                return deep;
-        }
-        return null;
-    }
-
-    protected static void Collect<T>(Node node, List<T> into) where T : class
-    {
-        foreach (Node child in node.GetChildren())
-        {
-            if (child is T match)
-                into.Add(match);
-            Collect(child, into);
-        }
-    }
 }

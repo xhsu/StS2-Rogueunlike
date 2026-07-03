@@ -27,15 +27,6 @@ public static class PotionRewardPicker
     public static bool IsActiveFor(Reward? reward) =>
         reward is PotionReward { IsPopulated: true } potionReward
         && potionReward.Player.RunState.Players.Count == 1;
-
-    // Mod keys are merged into the vanilla "gameplay_ui" table when the .pck ships them
-    // (Rogueunlike/localization/{lang}/gameplay_ui.json); without the .pck we fall back to
-    // English so the feature keeps working.
-    public static string Loc(string key, string fallback) =>
-        LocString.GetIfExists("gameplay_ui", key)?.GetFormattedText() ?? fallback;
-
-    public static string SelectPotionLabel =>
-        Loc("ROGUEUNLIKE.SELECT_POTION.label", "Select a Potion");
 }
 
 // Replaces the take-flow: pick first, then run the vanilla claim with the picked potion.
@@ -96,7 +87,7 @@ public static class PotionRewardLabelPatch
     {
         if (!__instance.IsNodeReady() || !PotionRewardPicker.IsActiveFor(__instance.Reward))
             return;
-        __instance._label.Text = PotionRewardPicker.SelectPotionLabel;
+        __instance._label.Text = ModUi.SelectPotionLabel;
         // Same styling the Potion Lab uses for not-yet-seen potions.
         if (((PotionReward)__instance.Reward!)._icon is NPotion icon && icon.IsNodeReady())
         {
@@ -116,8 +107,8 @@ public static class PotionRewardHoverTipPatch
             return true;
         HoverTip tip = default;
         tip.Id = "Rogueunlike.SelectPotion";
-        tip.Title = PotionRewardPicker.SelectPotionLabel;
-        tip.Description = PotionRewardPicker.Loc("ROGUEUNLIKE.SELECT_POTION.tip",
+        tip.Title = ModUi.SelectPotionLabel;
+        tip.Description = ModUi.Loc("ROGUEUNLIKE.SELECT_POTION.tip",
             "Opens the Potion Lab so you can take any potion this reward could have rolled. "
             + "Darkened potions cannot drop from this reward. Locked potions have not been unlocked yet.");
         __result = new IHoverTip[] { tip };

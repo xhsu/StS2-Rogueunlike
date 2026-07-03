@@ -32,6 +32,31 @@ This compiles the mod and auto-copies `Rogueunlike.dll`, `Rogueunlike.pdb`, and 
 - **`Rogueunlike/`** — Godot resource folder (assets, scenes, localization). Contents go into the `.pck` file on publish.
 - **`project.godot` / `export_presets.cfg`** — Godot project files needed for `.pck` export.
 
+## Feature Architecture (RogueunlikeCode/)
+
+Design invariants every feature follows — do not break these:
+
+- **Selection pool = loot pool at the current context.** Pickable ⟺ that exact source could roll that exact item right now. The rest of the pool renders compendium-style: darkened (NotSeen) when unlocked-but-excluded here, locked when progression-locked. Never expand a loot pool.
+- **Save-safety.** Every write lands in vanilla-reachable state (reward/entry model fields, vanilla `CalcCost`/upgrade-roll RNG advancement, grab-bag consumption mirroring the vanilla pull). Mod-only flags live in memory (weak tables); installing or uninstalling mid-run is always safe.
+- **Discovery = candidate-click only.** Pickers register as `ModSeenGate` anchors so rendering/hovering a roster never marks items seen; clicking an item as your pending candidate is the only reveal.
+- **Multiplayer**: features are singleplayer-gated (`Players.Count == 1`) unless a vanilla sync channel exists — the treasure chest rides the vanilla index-vote action, so it is MP-safe when every client runs the mod.
+
+| File | Role |
+|---|---|
+| `MainFile.cs` | Entry point; Harmony bootstrap. |
+| `ModUi.cs` | Shared shell every picker is assembled from (mount walk, modal dim, back-ribbon rewire, confirm button), mod localization (`Loc` + Select-a-X labels), node-scavenging helpers. |
+| `ModSearch.cs` | Card Library search-bar widget graft, canonicalisation, space=AND matching. |
+| `SeenOnPickPatch.cs` | `ModSeenGate` discovery suppression (anchors + manual scopes), unseen-star badge (`ModUnseenFx`), the `Mark*AsSeen` funnel patch. |
+| `ShowAllCardRewardsPatch.cs` | Feature #1, state side: card rewards generate the whole valid pool through the vanilla per-card pipeline. |
+| `CardRewardScreenOverhaul.cs` | Feature #1, UI seam: replaces the reward screen body (≤5 options falls back to the vanilla fan layout); per-grid visibility/sparkle/gray-tint tables used by all card grids. |
+| `ModCardGridPicker.cs` | Abstract base for card pickers: grid + deck-view chrome (sort bar, upgrades tickbox, back) + debounced search + selection. |
+| `ModRewardScreenUi.cs` | Grand Card Selection — reward-screen host glue over the base. |
+| `ModShopCardPickerUi.cs` | Merchant card picker — modal host glue over the base. |
+| `PotionRewardPickerPatch.cs`, `RelicRewardPickerPatch.cs` | Features #2/#3: reward-row pick-then-claim seams (`NRewardButton.GetReward` prefix, `_passThrough` re-entry). |
+| `ModPotionPickerUi.cs`, `ModRelicPickerUi.cs` | Compendium-scene pickers (Potion Lab / Relic Collection) serving rewards, treasure and shop via `Attach(host, player, valid)`. |
+| `TreasureChestPickerPatch.cs` | Feature #3.1: shaded treasure table; round-based picking over the deterministically expanded shared vote list; vanilla RPS fights; losers re-pick. |
+| `ShopPickerPatch.cs` | Feature #4: merchant shade-and-assign slots — assignment mirrors each entry's vanilla stock path; restock re-shades. |
+
 ## Modding Conventions
 
 - Game code lives under `MegaCrit.Sts2.*` namespaces in `sts2.dll`.

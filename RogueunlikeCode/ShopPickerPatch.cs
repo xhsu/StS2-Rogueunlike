@@ -64,8 +64,6 @@ public static class ShopPicker
         entry != null && entry.IsStocked
         && Eligible.TryGetValue(entry, out _) && !Assigned.TryGetValue(entry, out _);
 
-    private static string Loc(string key, string fallback) => PotionRewardPicker.Loc(key, fallback);
-
     // ---- stocking: gate registration + keep rolled identities undiscovered ----
 
     [HarmonyPatch(typeof(MerchantInventory), nameof(MerchantInventory.CreateForNormalMerchant))]
@@ -355,24 +353,24 @@ public static class ShopPicker
         [HarmonyPrefix, HarmonyPatch(typeof(NMerchantCard), "CreateHoverTip")]
         static bool Card(NMerchantCard __instance) =>
             ShowSelectTip(__instance, __instance._cardEntry,
-                Loc("ROGUEUNLIKE.SELECT_CARD.label", "Select a Card"),
-                Loc("ROGUEUNLIKE.SELECT_CARD.shop_tip",
+                ModUi.SelectCardLabel,
+                ModUi.Loc("ROGUEUNLIKE.SELECT_CARD.shop_tip",
                     "This slot's identity is yours to choose, once: opens the card grid with everything "
                     + "this slot could have stocked. The price follows your pick."));
 
         [HarmonyPrefix, HarmonyPatch(typeof(NMerchantRelic), "CreateHoverTip")]
         static bool Relic(NMerchantRelic __instance) =>
             ShowSelectTip(__instance, __instance._relicEntry,
-                RelicRewardPicker.SelectRelicLabel,
-                Loc("ROGUEUNLIKE.SELECT_RELIC.shop_tip",
+                ModUi.SelectRelicLabel,
+                ModUi.Loc("ROGUEUNLIKE.SELECT_RELIC.shop_tip",
                     "This slot's identity is yours to choose, once: opens the Relic Collection with everything "
                     + "this slot could have stocked. The price follows your pick."));
 
         [HarmonyPrefix, HarmonyPatch(typeof(NMerchantPotion), "CreateHoverTip")]
         static bool Potion(NMerchantPotion __instance) =>
             ShowSelectTip(__instance, __instance._potionEntry,
-                PotionRewardPicker.SelectPotionLabel,
-                Loc("ROGUEUNLIKE.SELECT_POTION.shop_tip",
+                ModUi.SelectPotionLabel,
+                ModUi.Loc("ROGUEUNLIKE.SELECT_POTION.shop_tip",
                     "This slot's identity is yours to choose, once: opens the Potion Lab with everything "
                     + "this slot could have stocked. The price follows your pick."));
 

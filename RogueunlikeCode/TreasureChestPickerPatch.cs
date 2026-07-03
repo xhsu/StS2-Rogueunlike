@@ -498,8 +498,8 @@ public static class TreasureChestPicker
             NHoverTipSet.Remove(__instance);
             HoverTip tip = default;
             tip.Id = "Rogueunlike.SelectChestRelic";
-            tip.Title = RelicRewardPicker.SelectRelicLabel;
-            tip.Description = PotionRewardPicker.Loc("ROGUEUNLIKE.SELECT_RELIC.chest_tip",
+            tip.Title = ModUi.SelectRelicLabel;
+            tip.Description = ModUi.Loc("ROGUEUNLIKE.SELECT_RELIC.chest_tip",
                 "Opens the Relic Collection so you can pick any relic this chest could have dropped. "
                 + "The shaded relic is the chest's original roll — it is revealed once someone votes for it.");
             NHoverTipSet.CreateAndShow(__instance, new IHoverTip[] { tip })?.SetAlignmentForRelic(__instance.Relic);

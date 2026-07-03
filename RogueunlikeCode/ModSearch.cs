@@ -30,8 +30,7 @@ internal static class ModSearch
     {
         Control donor = PreloadManager.Cache.GetScene(LibraryScene)
             .Instantiate<Control>(PackedScene.GenEditState.Disabled);
-        NSearchBar? bar = FindDescendant<NSearchBar>(donor);
-        bar?.GetParent().RemoveChild(bar);
+        NSearchBar? bar = ModUi.Extract<NSearchBar>(donor);
         donor.QueueFreeSafely();
         if (bar == null)
         {
@@ -87,17 +86,5 @@ internal static class ModSearch
             if (!haystack.Contains(token))
                 return false;
         return true;
-    }
-
-    private static T? FindDescendant<T>(Node node) where T : class
-    {
-        foreach (Node child in node.GetChildren())
-        {
-            if (child is T match)
-                return match;
-            if (FindDescendant<T>(child) is T deep)
-                return deep;
-        }
-        return null;
     }
 }
