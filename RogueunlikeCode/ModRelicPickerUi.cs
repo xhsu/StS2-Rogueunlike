@@ -194,9 +194,16 @@ public partial class ModRelicPickerUi : Control
         foreach (NRelicCollectionEntry entry in entries)
         {
             // The collection wires every entry's click to the compendium inspect screen; kill it.
+            // IsConnected guard: some listed connections (scene-authored / re-attached rounds
+            // of the treasure picker) don't round-trip through Variant as disconnectable and
+            // would spam "nonexistent connection" engine errors.
             foreach (Godot.Collections.Dictionary conn in
                      entry.GetSignalConnectionList(NClickableControl.SignalName.Released))
-                entry.Disconnect(NClickableControl.SignalName.Released, conn["callable"].AsCallable());
+            {
+                Callable callable = conn["callable"].AsCallable();
+                if (entry.IsConnected(NClickableControl.SignalName.Released, callable))
+                    entry.Disconnect(NClickableControl.SignalName.Released, callable);
+            }
 
             bool locked = entry.ModelVisibility == ModelVisibility.Locked;
             bool pickable = !locked && valid.Contains(entry.relic.CanonicalInstance);

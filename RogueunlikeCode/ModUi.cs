@@ -103,14 +103,16 @@ internal static class ModUi
 
     // ---- localization ----
 
-    // Mod keys are merged into the vanilla "gameplay_ui" table when the .pck ships them
-    // (Rogueunlike/localization/{lang}/gameplay_ui.json); without the .pck we fall back
-    // to English so every feature keeps working.
+    // Every mod string has an entry in the "gameplay_ui" loc table: vanilla keys where the
+    // game already localizes the text, ROGUEUNLIKE.* keys otherwise, merged from the .pck's
+    // Rogueunlike/localization/{lang}/gameplay_ui.json; without the .pck we fall back to
+    // English so every feature keeps working. Raw text, not SmartFormat — mod entries may
+    // carry string.Format placeholders ({0}), which SmartFormat would reject to Sentry.
     public static string Loc(string key, string fallback) =>
-        LocString.GetIfExists("gameplay_ui", key)?.GetFormattedText() ?? fallback;
+        LocString.GetIfExists("gameplay_ui", key)?.GetRawText() ?? fallback;
 
-    public static string SelectCardLabel => Loc("ROGUEUNLIKE.SELECT_CARD.label", "Select a Card");
-    public static string SelectRelicLabel => Loc("ROGUEUNLIKE.SELECT_RELIC.label", "Select a Relic");
+    public static string SelectCardLabel => Loc("CHOOSE_CARD_HEADER", "Choose a Card");     // vanilla
+    public static string SelectRelicLabel => Loc("CHOOSE_RELIC_HEADER", "Choose a Relic");  // vanilla
     public static string SelectPotionLabel => Loc("ROGUEUNLIKE.SELECT_POTION.label", "Select a Potion");
     public static string SelectAncientLabel => Loc("ROGUEUNLIKE.SELECT_ANCIENT.label", "Select an Ancient");
 

@@ -331,6 +331,12 @@ public partial class ModAncientPickerUi : Control
             FitContent = true,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
         };
+        // MegaRichTextLabel._Ready ASSERTS a normal_font override (engine-bug workaround
+        // in MegaLabelHelper) — without one it throws on AddChild and skips its own
+        // font/effect setup. Mirror the theme font back as the override; RefreshFont
+        // still swaps in the CJK substitute after this for locales that need it.
+        label.AddThemeFontOverride(ThemeConstants.RichTextLabel.NormalFont,
+            label.GetThemeFont(ThemeConstants.RichTextLabel.NormalFont, "RichTextLabel"));
         label.AutoSizeEnabled = false;
         label.SetFontSize(fontSize);
         return label;
@@ -354,8 +360,9 @@ public partial class ModAncientPickerUi : Control
             ? string.Format(ModUi.Loc("ROGUEUNLIKE.ANCIENT_ROLLS.label", "Will roll {0} — click to substitute:"), pools.Count)
             : pickable
                 ? ""
-                : ModUi.Loc(unlocked ? "ROGUEUNLIKE.ANCIENT_NOT_HERE.label" : "ROGUEUNLIKE.ANCIENT_LOCKED.label",
-                    unlocked ? "Cannot appear at this act" : "Locked");
+                : unlocked
+                    ? ModUi.Loc("ROGUEUNLIKE.ANCIENT_NOT_HERE.label", "Cannot appear at this act")
+                    : LockedTitle(); // vanilla card_library "Locked"
 
         _infoOptions.Visible = !interactive;
         _infoSlots.Visible = interactive;
