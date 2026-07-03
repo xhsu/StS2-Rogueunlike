@@ -1,0 +1,8 @@
+{
+  "title": "Rogueunlike",
+  "visibility": "public",
+  "changeNote": "Initial release (v0.1.0)",
+  "tags": [],
+  "dependencies": [3737335127],
+  "contentDescriptors": []
+}
