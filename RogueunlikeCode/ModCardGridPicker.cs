@@ -184,10 +184,9 @@ public abstract partial class ModCardGridPicker : Control
     // ---- selection ----
 
     // Selection visuals run on the clicked holder's own card node, not only through
-    // Highlight/UnhighlightCard: the grid resolves model→node with a FirstOrDefault scan
-    // over its sliding window (hidden recycled holders keep stale models), so the direct
-    // node is the one authority for what's under the cursor. The grid calls stay for
-    // their bookkeeping — _highlightedCards is what re-applies on scroll recycle.
+    // Highlight/UnhighlightCard: the grid calls stay for their bookkeeping (scroll-recycle
+    // re-apply), but the visual is asserted directly via ForceHighlight, which survives
+    // the pooled-NCard corruption that intermittently eats the vanilla tween (see below).
     private void OnCardClicked(NCardHolder holder)
     {
         CardModel? card = holder.CardModel;
@@ -197,25 +196,58 @@ public abstract partial class ModCardGridPicker : Control
         if (_pending == card) // click again to deselect
         {
             _grid.UnhighlightCard(card);
-            clicked?.CardHighlight.AnimHide();
+            if (clicked != null)
+                ForceHighlight(clicked, false);
             _pending = null;
             _confirm.Disable();
             return;
         }
         if (_pending != null)
+        {
             _grid.UnhighlightCard(_pending);
+            if (_grid.GetCardNode(_pending) is NCard oldNode)
+                ForceHighlight(oldNode, false);
+        }
         _grid.HighlightCard(card);
         if (clicked != null)
-        {
-            if (_grid.GetCardNode(card) != clicked)
-                MainFile.Logger.Info($"[card picker] grid lookup missed {card.Id}; highlight applied directly");
-            clicked.CardHighlight.AnimShow();
-        }
+            ForceHighlight(clicked, true);
         _pending = card;
         _confirm.Enable();
         ModSeenGate.MarkPicked(card); // candidacy is the reveal (see ModSeenGate)
         if (_unseen.Remove(card) && clicked != null) // discovered now — stop advertising it as new
             clicked._sparkles.Visible = false;
+    }
+
+    // The selection outline is a shader "width" param tweened by NCardHighlight through a
+    // material reference cached at its first _Ready. NCards are pooled for the whole game
+    // process, and field reports show instances coming back with that path dead — random
+    // cards ignore AnimShow all session until a game restart rebuilds the pool. So drive
+    // the param directly on the material the node is CURRENTLY rendering with (no tween),
+    // and when the cached reference has diverged, repair it so vanilla AnimShow/AnimHide
+    // (combat hand glow included) work again for that instance. Logs only when it finds
+    // something wrong — a "healed" line in godot.log confirms the diagnosis.
+    private static void ForceHighlight(NCard node, bool on)
+    {
+        NCardHighlight? highlight = node.CardHighlight;
+        if (highlight == null)
+            return;
+        if (!highlight.Visible)
+        {
+            MainFile.Logger.Info($"[card picker] {node.Model?.Id}: highlight node was hidden; re-shown");
+            highlight.Visible = true;
+        }
+        if (highlight.Material is not ShaderMaterial live)
+        {
+            MainFile.Logger.Info($"[card picker] {node.Model?.Id}: highlight material is "
+                + $"{highlight.Material?.GetType().Name ?? "null"} — nothing to drive");
+            return;
+        }
+        if (!ReferenceEquals(live, highlight._shaderMaterial))
+        {
+            MainFile.Logger.Info($"[card picker] {node.Model?.Id}: highlight material cache diverged; healed");
+            highlight._shaderMaterial = live;
+        }
+        live.SetShaderParameter(NCardHighlight._shaderParameterWidth, on ? 0.075f : 0f); // AnimShow's target width
     }
 
     // NCardGrid derives its column count from its laid-out width; a freshly re-parented grid
@@ -295,7 +327,11 @@ public abstract partial class ModCardGridPicker : Control
         if (_pending == null)
             return;
         if (show.Contains(_pending))
+        {
             _grid.HighlightCard(_pending); // holders were rebuilt; re-apply
+            if (_grid.GetCardNode(_pending) is NCard node)
+                ForceHighlight(node, true);
+        }
         else
         {
             _pending = null;
