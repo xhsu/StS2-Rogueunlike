@@ -195,5 +195,17 @@ public static class AncientPickerPatch
 [HarmonyPatch(typeof(NMapScreen), "_GuiInput")]
 public static class MapInputGatePatch
 {
-    static bool Prefix() => !AncientPickerPatch.PickerOpen && !UnknownPickerPatch.PickerOpen;
+    static bool Prefix(NMapScreen __instance)
+    {
+        if (!AncientPickerPatch.PickerOpen && !UnknownPickerPatch.PickerOpen)
+            return true;
+        // The very click that opens a picker: its PRESS bubbled here first and armed the
+        // map's left-drag pan (_isDragging = true), and by the time its RELEASE bubbles
+        // up from the node, _pickerOpen is already set — so the gate would swallow the
+        // release and the map stays "held" after the picker closes (map glued to the
+        // mouse; visible in MP, where travel waits on the other players' votes and you
+        // remain on the map). Swallowing input while modal ⇒ also drop the drag arm.
+        __instance._isDragging = false;
+        return false;
+    }
 }

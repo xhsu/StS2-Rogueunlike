@@ -147,7 +147,7 @@ Chest rarities assumed `{Common, Uncommon, Rare}` (= `RelicFactory.RollRarity` o
 | Target | Kind | Note |
 |---|---|---|
 | `NMapScreen.OnMapPointSelectedLocally` | prefix (nameof) | Click seam (Ancient nodes; coexists with feature #6's prefix — disjoint point types) |
-| `NMapScreen."_GuiInput"` | prefix (string) | Map input gate while a picker modal is up |
+| `NMapScreen."_GuiInput"` | prefix (string) | Map input gate while a picker modal is up; also clears `_isDragging` while gating — the node-click press arms the left-drag pan before the picker exists and the gate eats the matching release (stuck map-drag otherwise, visible in MP where travel waits on votes) |
 | `EventSynchronizer.BeginEvent` | **transpiler** (nameof) | Redirects the loop's one `canonicalEvent.ToMutable()` to `PickFor(canonical, player, isPrefinished)` — the vanilla body runs whole. Patch-time asserts: exactly 1 `ToMutable` call site, exactly 1 `Player` local; violated ⇒ throw ⇒ ancient group off, loudly |
 | `AncientEventModel."GenerateInitialOptionsWrapper"` | postfix (string) | Slot designation AFTER the vanilla roll |
 | `RunManager.GenerateRooms` | postfix (nameof) | Pick-map reset |
