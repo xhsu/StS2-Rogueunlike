@@ -130,6 +130,7 @@ internal static class ModUi
     public static string SelectRelicLabel => Loc("CHOOSE_RELIC_HEADER", "Choose a Relic");  // vanilla
     public static string SelectPotionLabel => Loc("ROGUEUNLIKE.SELECT_POTION.label", "Select a Potion");
     public static string SelectAncientLabel => Loc("ROGUEUNLIKE.SELECT_ANCIENT.label", "Select an Ancient");
+    public static string SelectUnknownLabel => Loc("ROGUEUNLIKE.SELECT_UNKNOWN.label", "Choose Your Fate");
 
     // ---- scene scavenging ----
 

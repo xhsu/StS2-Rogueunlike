@@ -1,8 +1,7 @@
 {
-  "title": "Rogueunlike",
   "visibility": "public",
-  "changeNote": "Initial release (v0.1.0)",
-  "tags": [],
+  "changeNote": "Hardening for multiplayer feature, compatibility and logging",
+  "tags": ["QoL", "Gameplay", "English"],
   "dependencies": [3737335127],
   "contentDescriptors": []
 }

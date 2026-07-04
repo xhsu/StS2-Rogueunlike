@@ -174,13 +174,14 @@ public static class AncientPickerPatch
     }
 }
 
-// The picker is a CHILD of NMapScreen, and gui events its controls don't consume bubble
-// up the ancestor chain into NMapScreen._GuiInput — whose handlers scroll the map on
-// wheel, pan it on left-drag and start map drawings on right/middle click, all under the
-// modal. Gate the whole handler while the picker is up; the picker's own scrolling and
-// clicks are handled by its children before anything reaches the map screen.
+// The pickers are CHILDREN of NMapScreen, and gui events their controls don't consume
+// bubble up the ancestor chain into NMapScreen._GuiInput — whose handlers scroll the map
+// on wheel, pan it on left-drag and start map drawings on right/middle click, all under
+// the modal. Gate the whole handler while either map picker (Ancient or ?) is up; the
+// pickers' own scrolling and clicks are handled by their children before anything
+// reaches the map screen.
 [HarmonyPatch(typeof(NMapScreen), "_GuiInput")]
 public static class MapInputGatePatch
 {
-    static bool Prefix() => !AncientPickerPatch.PickerOpen;
+    static bool Prefix() => !AncientPickerPatch.PickerOpen && !UnknownPickerPatch.PickerOpen;
 }
