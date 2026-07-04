@@ -7,8 +7,11 @@ using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Runs;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 
 namespace Rogueunlike.RogueunlikeCode;
 
@@ -41,12 +44,13 @@ internal static class AncientPickSync
     private static readonly Dictionary<ulong, AncientEventModel> _picks = new();
     private static readonly Dictionary<ulong, (string AncientEntry, List<(int Slot, string Identity)> Options)> _optionPicks = new();
 
-    public static bool Any => _picks.Count > 0;
-
     public static void Record(ulong netId, AncientEventModel ancient) => _picks[netId] = ancient;
 
-    public static bool TryGet(ulong netId, out AncientEventModel ancient) =>
-        _picks.TryGetValue(netId, out ancient!);
+    /// <summary>Consumes (removes) the player's model pick; every player passes through
+    /// the substitution exactly once per BeginEvent, so consume-on-read replaces the old
+    /// clear-after-loop. Stale picks (departed players) die with GenerateRooms' Clear.</summary>
+    public static bool TryTake(ulong netId, out AncientEventModel ancient) =>
+        _picks.Remove(netId, out ancient!);
 
     public static void RecordOptions(ulong netId, string ancientEntry, List<(int Slot, string Identity)> options) =>
         _optionPicks[netId] = (ancientEntry, options);
@@ -62,11 +66,6 @@ internal static class AncientPickSync
         options = stored.Options;
         return true;
     }
-
-    // Model picks are consumed as a batch when EventSynchronizer.BeginEvent substitutes;
-    // option picks are consumed per player LATER, inside each event's own (un-awaited)
-    // BeginEvent task when its options generate — so they must survive this clear.
-    public static void ClearModelPicks() => _picks.Clear();
 
     public static void Clear()
     {
@@ -150,64 +149,82 @@ public class AncientPickConsoleCmd : AbstractConsoleCmd
 }
 
 /// <summary>
-/// The substitution seam: mirrors vanilla <see cref="EventSynchronizer.BeginEvent"/> but
-/// clones each player's mutable event from their synced pick (canonical for players who
-/// didn't pick). Runs only for a live (non-prefinished) Ancient event with picks pending —
-/// reloads and every other event in the game take the vanilla path untouched.
+/// The substitution seam. Vanilla BeginEvent clones each player's mutable event from the
+/// shared canonical inside its per-player loop:
+///     EventModel eventModel = canonicalEvent.ToMutable();
+/// This transpiler redirects exactly that call to <see cref="PickFor"/>, which returns
+/// the player's synced pick when one is pending (canonical otherwise) — so the WHOLE
+/// vanilla body keeps running (vote resets, cleanup, logging, and anything MegaCrit adds
+/// later flow through automatically), and other mods' patches on BeginEvent are never
+/// bypassed (the old prefix skipped the original while substituting).
+///
+/// Deliberately assertion-loud instead of drift-silent: if the method ever stops having
+/// exactly one ToMutable call site and exactly one Player local, the transpiler THROWS at
+/// patch time — ModPatcher rolls back the whole ancient group and logs the feature as
+/// disabled, rather than guessing at a reshaped body.
 /// </summary>
 [HarmonyPatch(typeof(EventSynchronizer), nameof(EventSynchronizer.BeginEvent))]
 public static class AncientEventSubstitutionPatch
 {
-    static bool Prefix(EventSynchronizer __instance, EventModel canonicalEvent,
-        bool isPrefinished, System.Action<EventModel>? debugOnStart)
+    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
     {
-        if (canonicalEvent is not AncientEventModel || isPrefinished || !AncientPickSync.Any)
-            return true;
+        List<CodeInstruction> code = instructions.ToList();
+        List<int> sites = new();
+        for (int i = 0; i < code.Count; i++)
+            if ((code[i].opcode == OpCodes.Callvirt || code[i].opcode == OpCodes.Call)
+                && code[i].operand is MethodInfo { Name: "ToMutable" })
+                sites.Add(i);
+        if (sites.Count != 1)
+            throw new InvalidOperationException(
+                $"expected exactly 1 ToMutable call in EventSynchronizer.BeginEvent, found {sites.Count} — vanilla body changed, refusing to guess");
+
+        List<LocalVariableInfo> playerLocals = (original.GetMethodBody()?.LocalVariables)
+            ?.Where(l => l.LocalType == typeof(Player)).ToList()
+            ?? throw new InvalidOperationException("EventSynchronizer.BeginEvent body unreadable");
+        if (playerLocals.Count != 1)
+            throw new InvalidOperationException(
+                $"expected exactly 1 Player local in EventSynchronizer.BeginEvent, found {playerLocals.Count} — vanilla body changed, refusing to guess");
+
+        int site = sites[0];
+        // Stack at the call site: [canonicalEvent]. Append the loop's player local and
+        // the isPrefinished argument, then call PickFor(EventModel, Player, bool) in its
+        // place — same net stack effect as the original callvirt.
+        CodeInstruction loadPlayer = CodeInstruction.LoadLocal(playerLocals[0].LocalIndex);
+        loadPlayer.labels.AddRange(code[site].labels); // keep any jumps-to-here landing before our loads
+        code[site].labels.Clear();
+        code[site] = new CodeInstruction(OpCodes.Call,
+            AccessTools.Method(typeof(AncientEventSubstitutionPatch), nameof(PickFor)));
+        code.InsertRange(site, new[] { loadPlayer, new CodeInstruction(OpCodes.Ldarg_2) });
+        return code;
+    }
+
+    /// <summary>
+    /// The per-player clone source. Never throws (it runs inside the vanilla body):
+    /// any failure falls back to the canonical, exactly like a player without a pick.
+    /// Consumption-time pool re-check keeps a raced/stale pick from leaking in —
+    /// deterministic on every client.
+    /// </summary>
+    public static EventModel PickFor(EventModel canonical, Player player, bool isPrefinished)
+    {
         try
         {
-            RunState? state = RunManager.Instance.State;
-            List<AncientEventModel>? pool = state != null
-                ? AncientPickerPatch.ValidPool(state.Act, state)
-                : null;
-
-            // -- vanilla BeginEvent, per-player model swapped in ------------------
-            for (int i = __instance._playerVotes.Count; i < __instance._playerCollection.Players.Count; i++)
-                __instance._playerVotes.Add(null);
-            foreach (EventModel stale in __instance._events)
-                if (!stale.IsFinished)
-                    stale.EnsureCleanup();
-            __instance._events.Clear();
-            __instance._pendingOptionTasks.Clear();
-            for (int i = 0; i < __instance._playerVotes.Count; i++)
-                __instance._playerVotes[i] = null;
-            __instance._pageIndex = 0u;
-            __instance._canonicalEvent = canonicalEvent;
-            foreach (Player player in __instance._playerCollection.Players)
+            if (canonical is AncientEventModel && !isPrefinished
+                && AncientPickSync.TryTake(player.NetId, out AncientEventModel pick))
             {
-                // Consumption-time pool re-check: a pick raced past room creation (or
-                // outlived its act) must not leak in — deterministic on all clients.
-                EventModel source =
-                    AncientPickSync.TryGet(player.NetId, out AncientEventModel pick)
-                        && pool != null && pool.Contains(pick)
-                    ? pick
-                    : canonicalEvent;
-                EventModel model = source.ToMutable();
-                debugOnStart?.Invoke(model);
-                __instance._events.Add(model);
-                TaskHelper.RunSafely(model.BeginEvent(player, isPrefinished));
-                MainFile.Logger.Info($"[ancient mp] player {player.NetId} meets {source.Id.Entry}");
+                RunState? state = RunManager.Instance.State;
+                if (state != null && AncientPickerPatch.ValidPool(state.Act, state).Contains(pick))
+                {
+                    MainFile.Logger.Info($"[ancient mp] player {player.NetId} meets {pick.Id.Entry}");
+                    return pick.ToMutable();
+                }
+                MainFile.Logger.Error($"[ancient mp] pick {pick.Id.Entry} of player {player.NetId} no longer in the act pool; canonical kept");
             }
-            // Model picks only: option designations are consumed per player later,
-            // inside each event's un-awaited BeginEvent task (see AncientPickSync).
-            AncientPickSync.ClearModelPicks();
-            return false;
         }
         catch (System.Exception e)
         {
-            MainFile.Logger.Error($"[ancient mp] substitution failed, vanilla event for everyone: {e}");
-            AncientPickSync.ClearModelPicks();
-            return true; // vanilla BeginEvent re-runs from a clean slate (it clears state first)
+            MainFile.Logger.Error($"[ancient mp] substitution failed for player {player.NetId}, canonical kept: {e}");
         }
+        return canonical.ToMutable();
     }
 }
 

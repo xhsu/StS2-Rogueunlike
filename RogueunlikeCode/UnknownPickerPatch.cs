@@ -14,6 +14,8 @@ using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Threading.Tasks;
 
 namespace Rogueunlike.RogueunlikeCode;
@@ -250,9 +252,19 @@ internal static class UnknownPools
         UnknownMapPointOdds odds = state.Odds.UnknownMapPoint;
         IReadOnlySet<RoomType> allowed = AllowedTypes(state);
         float roll = new Rng(odds._rng.Seed, odds._rng.Counter).NextFloat();
-        RoomType category = allowed.Contains(RoomType.Event)
-            ? RoomType.Event
-            : allowed.OrderBy(t => t).FirstOrDefault(RoomType.Event);
+        RoomType category = SimulateRoll(odds, allowed, roll);
+        AbstractModel? content = category switch
+        {
+            RoomType.Event => PeekNextEvent(state),
+            RoomType.Monster or RoomType.Elite => PeekNextEncounter(state, category),
+            _ => null,
+        };
+        return (category, content);
+    }
+
+    /// <summary>Roll's bucket walk for a given roll value (pure; mirrors only the walk order + sign rule).</summary>
+    public static RoomType SimulateRoll(UnknownMapPointOdds odds, IReadOnlySet<RoomType> allowed, float roll)
+    {
         float mass = 0f;
         foreach (RoomType type in BucketOrder)
         {
@@ -261,18 +273,41 @@ internal static class UnknownPools
                 continue;
             mass += o;
             if (roll <= mass)
-            {
-                category = type;
-                break;
-            }
+                return type;
         }
-        AbstractModel? content = category switch
+        return allowed.Contains(RoomType.Event)
+            ? RoomType.Event
+            : allowed.OrderBy(t => t).FirstOrDefault(RoomType.Event); // vanilla default fallback
+    }
+
+    /// <summary>
+    /// A roll value that lands the vanilla bucket walk on <paramref name="category"/>
+    /// given the current odds — the midpoint of its effective range. Null when the
+    /// category cannot win right now. Callers must confirm with <see cref="SimulateRoll"/>
+    /// before use (guards float-precision edges and walk-order drift alike).
+    /// </summary>
+    public static float? ForcingFloat(UnknownMapPointOdds odds, IReadOnlySet<RoomType> allowed, RoomType category)
+    {
+        float mass = 0f;
+        foreach (RoomType type in BucketOrder)
         {
-            RoomType.Event => PeekNextEvent(state),
-            RoomType.Monster or RoomType.Elite => PeekNextEncounter(state, category),
-            _ => null,
-        };
-        return (category, content);
+            float o = odds._nonEventOdds[type];
+            if (!allowed.Contains(type) || o < 0f)
+                continue;
+            if (type == category)
+            {
+                float effective = Mathf.Min(o, Mathf.Max(0f, 1f - mass));
+                return effective > 0f ? mass + effective / 2f : null;
+            }
+            mass += o;
+        }
+        float leftover = Mathf.Max(0f, 1f - mass);
+        if (leftover <= 0f)
+            return null;
+        RoomType fallback = allowed.Contains(RoomType.Event)
+            ? RoomType.Event
+            : allowed.OrderBy(t => t).FirstOrDefault(RoomType.Event);
+        return category == fallback ? mass + leftover / 2f : null;
     }
 
     // EnsureNextEventIsValid's walk, without mutating the cursor.
@@ -359,22 +394,30 @@ public static class UnknownTravelTallyPatch
 }
 
 /// <summary>
-/// Category substitution: when a vote is armed for this travel, force the winning type
-/// while performing the exact side effects the real roll would for that outcome — one
-/// float consumed from the dedicated stream, winner reset to base odds, every other
-/// still-allowed type escalated through the vanilla hook. (Mirror of the tail of
-/// UnknownMapPointOdds.Roll — the mod's one copied body besides the Ancient
-/// substitution; re-check on game updates.)
+/// Category substitution, vanilla-executed: when a vote is armed for this travel, the
+/// prefix computes a roll VALUE that lands the bucket walk on the voted type (verified
+/// by simulating the walk first) and the transpiler feeds it in place of Roll's single
+/// NextFloat draw — a real draw still happens underneath, so the dedicated RNG stream
+/// advances exactly as vanilla. Everything else (the walk, the winner's base reset, the
+/// escalation hooks, the first-run forcing) is the ORIGINAL Roll body executing: any
+/// float in [0,1) is a roll vanilla could have made, so the resulting odds state is
+/// vanilla-reachable by construction, and future changes to Roll flow through untouched.
+///
+/// Assertion-loud instead of drift-silent (same policy as the Ancient transpiler): if
+/// Roll ever stops having exactly one single-argument NextFloat call site, the
+/// transpiler THROWS at patch time — ModPatcher rolls back the whole unknown group.
 /// </summary>
 [HarmonyPatch(typeof(UnknownMapPointOdds), nameof(UnknownMapPointOdds.Roll))]
 public static class ForcedUnknownRollPatch
 {
-    static bool Prefix(UnknownMapPointOdds __instance, IEnumerable<RoomType> blacklist,
-        IRunState runState, ref RoomType __result)
+    private static float? _forcedRoll;
+
+    static void Prefix(UnknownMapPointOdds __instance, IEnumerable<RoomType> blacklist, IRunState runState)
     {
+        _forcedRoll = null;
         UnknownPickArm.ArmedPick? armed = UnknownPickArm.Armed;
         if (armed == null)
-            return true;
+            return;
         try
         {
             if (runState is not RunState state
@@ -383,43 +426,83 @@ public static class ForcedUnknownRollPatch
             {
                 UnknownPickArm.Disarm();
                 MainFile.Logger.Error("[unknown picker] armed pick does not match this travel; vanilla roll");
-                return true;
+                return;
             }
             if (state.UnlockState.NumberOfRuns == 0)
             {
+                // Vanilla's first-run forcing returns before drawing — no float to feed.
                 UnknownPickArm.Disarm();
-                return true; // vanilla's first-run forcing owns this roll
+                return;
             }
             // Re-derive the candidate set from the CALLER's blacklist and re-test the
-            // pick's final chance — votes were validated at cast time, but state may
-            // have moved; every client re-tests identically.
+            // pick — votes were validated at cast time, but state may have moved; every
+            // client re-tests identically. The simulation doubles as the safety net for
+            // float-precision edges and bucket-order drift: no confirmed landing, no force.
             IReadOnlySet<RoomType> allowed = UnknownPools.AllowedTypes(state, blacklist);
-            if (UnknownPools.ChancesCore(__instance, allowed).GetValueOrDefault(armed.Category) <= 0f)
+            float? forced = UnknownPools.ForcingFloat(__instance, allowed, armed.Category);
+            if (forced is not float roll
+                || UnknownPools.SimulateRoll(__instance, allowed, roll) != armed.Category)
             {
                 UnknownPickArm.Disarm();
-                MainFile.Logger.Error($"[unknown picker] voted {armed.Category} is no longer rollable here; vanilla roll");
-                return true;
+                MainFile.Logger.Error($"[unknown picker] voted {armed.Category} is not rollable here; vanilla roll");
+                return;
             }
-            __instance._rng.NextFloat(); // the one float the vanilla roll consumes
-            foreach (KeyValuePair<RoomType, float> baseOdd in __instance._baseOdds)
-            {
-                if (baseOdd.Key == armed.Category)
-                    __instance._nonEventOdds[baseOdd.Key] = baseOdd.Value;
-                else if (allowed.Contains(baseOdd.Key))
-                    __instance._nonEventOdds[baseOdd.Key] +=
-                        Hook.ModifyOddsIncreaseForUnrolledRoomType(runState, baseOdd.Key, baseOdd.Value);
-            }
-            if (armed.Category is not (RoomType.Event or RoomType.Monster or RoomType.Elite))
-                UnknownPickArm.Disarm(); // shop/treasure carry no content pull
-            __result = armed.Category;
-            MainFile.Logger.Info($"[unknown picker] forced ? roll: {__result}");
-            return false;
+            _forcedRoll = roll;
+            MainFile.Logger.Info($"[unknown picker] forcing ? roll: {armed.Category} (value {roll:0.###})");
         }
         catch (System.Exception e)
         {
+            _forcedRoll = null;
             UnknownPickArm.Disarm();
-            MainFile.Logger.Error($"[unknown picker] forced roll failed, vanilla: {e}");
-            return true;
+            MainFile.Logger.Error($"[unknown picker] forced roll setup failed, vanilla: {e}");
+        }
+    }
+
+    /// <summary>Stands in for Roll's `_rng.NextFloat()`: the real draw still advances the stream.</summary>
+    public static float ForcedFloat(Rng rng, float max)
+    {
+        float natural = rng.NextFloat(max);
+        if (_forcedRoll is not float forced)
+            return natural;
+        _forcedRoll = null;
+        return forced;
+    }
+
+    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+    {
+        List<CodeInstruction> code = instructions.ToList();
+        List<int> sites = new();
+        for (int i = 0; i < code.Count; i++)
+            if ((code[i].opcode == OpCodes.Callvirt || code[i].opcode == OpCodes.Call)
+                && code[i].operand is MethodInfo { Name: "NextFloat" } target
+                && target.GetParameters().Length == 1)
+                sites.Add(i);
+        if (sites.Count != 1)
+            throw new System.InvalidOperationException(
+                $"expected exactly 1 NextFloat call in UnknownMapPointOdds.Roll, found {sites.Count} — vanilla body changed, refusing to guess");
+        int site = sites[0];
+        CodeInstruction call = new(OpCodes.Call,
+            AccessTools.Method(typeof(ForcedUnknownRollPatch), nameof(ForcedFloat)));
+        call.labels.AddRange(code[site].labels);
+        code[site] = call; // stack [rng, max] -> float, same as the original callvirt
+        return code;
+    }
+
+    // The roll is fully vanilla now, so re-check its outcome: a landing that somehow
+    // differs from the vote must not leave the content arm alive for the wrong pull.
+    static void Postfix(RoomType __result)
+    {
+        UnknownPickArm.ArmedPick? armed = UnknownPickArm.Armed;
+        if (armed == null)
+            return;
+        if (__result != armed.Category)
+        {
+            UnknownPickArm.Disarm();
+            MainFile.Logger.Error($"[unknown picker] roll produced {__result} instead of voted {armed.Category}; content pick dropped");
+        }
+        else if (armed.Category is not (RoomType.Event or RoomType.Monster or RoomType.Elite))
+        {
+            UnknownPickArm.Disarm(); // shop/treasure carry no content pull
         }
     }
 }

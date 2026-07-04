@@ -256,8 +256,8 @@ internal static class ModHealthCheck
         MainFile.Logger.Warn(
             $"[health] game version {running} differs from {VerifiedGameVersion}, which this mod build was verified against. "
             + "Features keep running, but re-verify the mirrored vanilla logic against the new decompile "
-            + "(docs/GAME-API-SURFACE.md § mirrored bodies): EventSynchronizer.BeginEvent (Ancient MP substitution), "
-            + "UnknownMapPointOdds.Roll (? forced roll + peek), RoomSet pull semantics, reward/shop/chest pool mirrors.");
+            + "(docs/GAME-API-SURFACE.md § mirrored logic): the ? odds bucket walk (peek/chances), RoomSet pull "
+            + "semantics, reward/shop/chest pool mirrors. The BeginEvent/Roll substitutions self-assert at patch time.");
         return 1;
     }
 

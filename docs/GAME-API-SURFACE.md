@@ -146,7 +146,7 @@ Chest rarities assumed `{Common, Uncommon, Rare}` (= `RelicFactory.RollRarity` o
 |---|---|---|
 | `NMapScreen.OnMapPointSelectedLocally` | prefix (nameof) | Click seam (Ancient nodes; coexists with feature #6's prefix — disjoint point types) |
 | `NMapScreen."_GuiInput"` | prefix (string) | Map input gate while a picker modal is up |
-| `EventSynchronizer.BeginEvent` | prefix (nameof) | **MIRRORED BODY** — per-player event clone substitution |
+| `EventSynchronizer.BeginEvent` | **transpiler** (nameof) | Redirects the loop's one `canonicalEvent.ToMutable()` to `PickFor(canonical, player, isPrefinished)` — the vanilla body runs whole. Patch-time asserts: exactly 1 `ToMutable` call site, exactly 1 `Player` local; violated ⇒ throw ⇒ ancient group off, loudly |
 | `AncientEventModel."GenerateInitialOptionsWrapper"` | postfix (string) | Slot designation AFTER the vanilla roll |
 | `RunManager.GenerateRooms` | postfix (nameof) | Pick-map reset |
 | runtime: every `ModifierModel."GenerateNeowOption"` impl (reflection sweep over `AccessTools.AllTypes()`) | prefix, lazy | Probe guards — modifier code must never execute while probing |
@@ -164,7 +164,7 @@ saved as `AncientId`), `NAncientMapPoint._icon/_outline`, `GeneratedOptions`, `A
 |---|---|---|
 | `NMapScreen.OnMapPointSelectedLocally` | prefix (nameof) | Click seam (Unknown nodes) |
 | `RunManager.EnterMapCoord` | prefix+postfix (nameof) | Vote tally → one-shot arm; postfix clears all votes |
-| `UnknownMapPointOdds.Roll` | prefix (nameof) | **MIRRORED BODY** — forced category with vanilla-identical side effects |
+| `UnknownMapPointOdds.Roll` | prefix + **transpiler** + postfix (nameof) | Prefix computes a forcing roll VALUE (simulation-verified); transpiler redirects Roll's one single-arg `NextFloat` call to `ForcedFloat(rng, max)` (real draw still advances the stream) — the vanilla body runs whole, so reset/escalation/hooks are vanilla-executed. Patch-time assert: exactly 1 such call site. Postfix drops the content arm if the outcome ≠ vote |
 | `ActModel.PullNextEvent` / `PullNextEncounter` | prefix (nameof) | Swap the pick into the cursor slot (vanilla's own `RoomSet.SwapToOrCreateAtIndex` semantics) |
 | `RunManager.GenerateRooms` | postfix (nameof) | Vote-map reset |
 
@@ -176,27 +176,28 @@ events (Ancients use `PullAncient`); `EnsureNextEventIsValid` ⟺ `IsAllowed && 
 peek clones RNG via public `Seed`+`Counter`; event profile-discovery = `ProgressState.DiscoveredEvents`,
 encounters = `UnlockState.HasSeenEncounter`.
 
-## Mirrored vanilla bodies — re-verify on EVERY game update
+## Mirrored logic — re-verify on game updates
 
-The health check warns when the running game version ≠ the verified one. Diff these against
-the fresh decompile; they are the only places vanilla logic is *copied* rather than called:
+No vanilla body is fully copied anymore (2026-07-04 rework): the two former full-body
+mirrors (`EventSynchronizer.BeginEvent`, `UnknownMapPointOdds.Roll`) are now **call-site
+transpilers** — the ORIGINAL bodies execute, one expression redirected, with patch-time
+assertions that throw (⇒ group rollback, loud) if the body shape changes. What remains
+mirrored is read-only or pool-derivation logic:
 
-1. **`AncientEventSubstitutionPatch.Prefix`** (`AncientPickSyncCmd.cs`) mirrors
-   `EventSynchronizer.BeginEvent` — decompiled: `MegaCrit.Sts2.Core.Events\EventSynchronizer.cs`.
-   Any new field/step in vanilla's body must be mirrored or the Ancient MP substitution
-   drifts (sync-critical). SP is unaffected (it swaps `RoomSet.Ancient` instead).
-2. **`ForcedUnknownRollPatch.Prefix`** (`UnknownPickerPatch.cs`) mirrors the tail of
-   `UnknownMapPointOdds.Roll` — decompiled: `MegaCrit.Sts2.Core.Odds\UnknownMapPointOdds.cs`.
-   One `NextFloat` + winner-reset + escalation via `Hook.ModifyOddsIncreaseForUnrolledRoomType`.
-3. **`UnknownPools.ChancesCore/Peek/PeekNextEvent`** mirror Roll's bucket walk and
-   `RoomSet.EnsureNextEventIsValid`'s validity walk (read-only mirrors; wrong = wrong
-   percentages/peek, never wrong state).
-4. **Pool-derivation mirrors** (selection = loot law): `ModRelicPickerUi.ValidDrops` ↔
+1. **`UnknownPools.ChancesCore/SimulateRoll/ForcingFloat/PeekNextEvent`** mirror Roll's
+   bucket-walk order + sign rule and `RoomSet.EnsureNextEventIsValid`'s validity walk
+   (decompiled: `MegaCrit.Sts2.Core.Odds\UnknownMapPointOdds.cs`, `…Rooms\RoomSet.cs`).
+   Drift ⇒ wrong percentages/peek, or the forcing float landing off-target — which the
+   pre-force simulation catches and degrades to a vanilla roll. Never wrong state.
+2. **Pool-derivation mirrors** (selection = loot law): `ModRelicPickerUi.ValidDrops` ↔
    `RelicFactory` pulls; `ShopPicker.AssignCard` filter chain ↔ `CardFactory.CreateForMerchant`;
    `ShopPicker.ApplyCardAssignment` ↔ `MerchantCardEntry.Populate`;
    `ShowAllCardRewardsPatch` ↔ `CardFactory.CreateForReward` stages;
    `TreasureChestPicker` extras ↔ shared-bag `PullFromFront` reachability;
    `ModPotionPickerUi.Fill` ordering ↔ `NPotionLabCategory.LoadPotions`.
+3. **Flow replacement** (intentional, not a mirror): `TreasureChestPicker.ResolveRound`
+   replaces `AwardRelics` semantics wholesale; it REUSES the vanilla pieces
+   (`GenerateRelicFight`, `RelicCmd.Obtain`, `MoveToFallback`, `EndRelicVoting`).
 
 ## Donor assets (scavenged vanilla UI; health-checked at startup)
 
