@@ -153,9 +153,6 @@ public partial class ModUnknownPickerUi : Control
         BuildBackButton();
 
         SelectFate(); // the vanilla roll is the default vote, matching the other pickers
-
-        MainFile.Logger.Info($"[unknown picker] built at {coord}: "
-            + string.Join(", ", _chances.Where(kv => kv.Value > 0f).Select(kv => $"{kv.Key} {kv.Value:P1}")));
     }
 
     private void ConfirmPick()

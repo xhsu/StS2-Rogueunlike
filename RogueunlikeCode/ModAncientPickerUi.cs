@@ -165,8 +165,6 @@ public partial class ModAncientPickerUi : Control
 
         if (_rows.ContainsKey(current))
             Select(current); // vanilla roll = the default pick; confirming keeps it
-
-        MainFile.Logger.Info($"[ancient picker] built: {validSet.Count} pickable of {roster.Count} total");
     }
 
     private void BuildRow(VBoxContainer into, AncientEventModel ancient, bool pickable, bool unlocked)

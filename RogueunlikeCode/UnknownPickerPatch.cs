@@ -21,34 +21,24 @@ using System.Threading.Tasks;
 namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
-/// Feature #6: choose what an unknown (?) map node becomes — the room category AND its
-/// content (which enemy, which event) — by player vote (see <see cref="UnknownPickSync"/>).
+/// Feature #6: choose what an unknown (?) node becomes — room category AND content —
+/// by player vote (see <see cref="UnknownPickSync"/>).
 ///
-/// Vanilla rolls in two independent stages at travel, and the mod substitutes at both:
-///   • category — UnknownMapPointOdds.Roll consumes one float from a dedicated RNG
-///     stream over escalating odds (Monster/Elite/Treasure/Shop buckets, remainder =
-///     Event). Pickable ⟺ final effective chance &gt; 0 through the exact vanilla inputs:
-///     current escalated odds (negative = never), RunManager.BuildRoomTypeBlacklist,
-///     and Hook.ModifyUnknownMapPointRoomTypes (Juzu Bracelet, Golden Compass, Deadly
-///     Events, other mods) — no relic or modifier is ever named.
-///   • content — the act pre-deals its event queue and encounter tables into RoomSet at
-///     generation; the pull reads at a wrap-around cursor. Pickable ⟺ a member of that
-///     exact dealt list (for events: additionally valid right now, mirroring
-///     EnsureNextEventIsValid). The substitution is a list SWAP into the cursor slot —
-///     the same operation vanilla's own RoomSet.SwapToOrCreateAtIndex performs for the
-///     tutorial — so the pull, its hooks (ModifyNextEvent) and the save shape stay
-///     pure vanilla. Never expands a pool by construction.
+/// Vanilla rolls in two stages at travel; the mod substitutes at both:
+///   • category — UnknownMapPointOdds.Roll consumes one float over escalating odds.
+///     Pickable ⟺ final effective chance &gt; 0 through the exact vanilla inputs
+///     (escalated odds, BuildRoomTypeBlacklist, Hook.ModifyUnknownMapPointRoomTypes) —
+///     no relic or modifier is ever named.
+///   • content — acts pre-deal events/encounters into RoomSet; the pull reads at a
+///     cursor. Pickable ⟺ member of that dealt list (events additionally valid now).
+///     Substitution = a list swap into the cursor slot — vanilla's own
+///     SwapToOrCreateAtIndex operation — so pulls, hooks and save shape stay vanilla.
 ///
-/// Save-safety: the forced category roll consumes one float and applies the exact
-/// reset/escalation the real roll would for that outcome (all serialized vanilla state);
-/// the swap permutes a vanilla-serialized list. Quitting before travel loses only the
-/// in-memory votes: reload = untraveled node, pure vanilla.
-///
-/// Multiplayer: votes ride the networked-console lockstep channel BEFORE each sender's
-/// map travel vote; travel needs every map vote, so all picks are tallied identically on
-/// every client when RunManager.EnterMapCoord fires. Gated on ModWireCheck like every
-/// sync feature. The very first run ever (NumberOfRuns == 0) keeps vanilla's forced
-/// tutorial sequence — the picker stays closed.
+/// Save-safety: the forced roll consumes one float and applies that outcome's exact
+/// vanilla reset/escalation; the swap permutes a vanilla-serialized list. Quitting
+/// before travel loses only in-memory votes. MP: votes ride the lockstep console-cmd
+/// channel BEFORE each sender's travel vote — travel needs every vote, so all picks
+/// tally identically at EnterMapCoord. First-ever run (NumberOfRuns == 0) stays vanilla.
 /// </summary>
 [HarmonyPatch(typeof(NMapScreen), nameof(NMapScreen.OnMapPointSelectedLocally))]
 public static class UnknownPickerPatch

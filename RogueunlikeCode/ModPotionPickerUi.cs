@@ -20,22 +20,13 @@ using System.Threading.Tasks;
 namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
-/// "Select one potion" overlay: the compendium Potion Lab screen, repurposed as a picker.
-/// Serves the potion reward row (feature #2) and the merchant potion slots (feature #4).
-/// Borrows the game's own potion_lab scene wholesale — rarity sections with localized
-/// headers, hover tips, character-pool outline colours, back ribbon — and shows the full
-/// potion roster in three states:
-///   • pickable — a potion this source could roll (<see cref="PotionFactory.GetPotionOptions"/>:
-///     character pool + shared pool, unlocked only — potion rolls are stateless, so this
-///     IS the whole loot pool, undiscovered ones included); full colour, clickable;
-///   • locked — progression unlock not reached; the lab's lock icon and "locked" hover
-///     tip, not clickable (exactly as the vanilla lab renders it);
-///   • not a valid loot — unlocked but outside this reward's pools (other characters'
-///     potions, event-only potions); the lab's "not seen" darkening repurposed as a
-///     "can't drop here" hint, real hover tips kept, not clickable.
-/// Rarity sections with nothing pickable at all are hidden — locked potions don't keep
-/// a section alive. The selection pool equals the loot pool, never more.
-/// Click a pickable potion to highlight it, checkmark to take it, back ribbon to cancel.
+/// "Select one potion" overlay: the vanilla Potion Lab scene repurposed as a picker,
+/// serving the reward row (feature #2) and merchant slots (feature #4). Full roster in
+/// the standard three states: pickable (this source could roll it — for rewards that is
+/// <see cref="PotionFactory.GetPotionOptions"/>, the whole stateless loot pool), locked
+/// (progression), darkened (unlocked but not a valid loot here — the lab's "not seen"
+/// tint repurposed, hover tips kept). Sections with nothing pickable are hidden.
+/// Click to select, checkmark to take, back ribbon to cancel.
 /// </summary>
 public partial class ModPotionPickerUi : Control
 {
@@ -150,8 +141,6 @@ public partial class ModPotionPickerUi : Control
         {
             MainFile.Logger.Error($"[search] potion bar failed (picker still works without it): {e}");
         }
-
-        MainFile.Logger.Info($"[potion picker] built: {valid.Count} pickable of {ModelDb.AllPotions.Count()} total");
     }
 
     private void Fill(NPotionLabCategory category, string headerKey,

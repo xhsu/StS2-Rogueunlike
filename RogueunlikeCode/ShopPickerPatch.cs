@@ -25,31 +25,21 @@ using System.Threading.Tasks;
 namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
-/// Feature #4: the merchant's rolled stock (7 cards, 3 relics, 3 potions) renders as
-/// shade-only buttons. Clicking one opens the matching picker over the slot's actual
-/// loot pool — what THAT slot could have rolled at the current context: character card
-/// slots any non-Basic rarity of their fixed type, colorless slots their fixed rarity,
-/// relic slots the grab bag's deque of the slot's rolled rarity (shop-allowed only),
-/// potion slots the whole out-of-combat potion pool — always minus what the other slots
-/// already stock, plus the slot's own roll. Confirming assigns the slot's identity ONCE:
-/// the slot then shows the real item at its recomputed vanilla price (sale halving
-/// preserved) and buys/behaves purely vanilla. If an effect restocks the slot (The
-/// Courier etc.), the new roll is shaded and assignable again.
+/// Feature #4: the merchant's rolled stock renders as shade-only buttons; clicking one
+/// opens the matching picker over THAT slot's loot pool at current context (character
+/// card slots: any non-Basic rarity of their fixed type; colorless slots: their fixed
+/// rarity; relic slots: the grab bag's deque of the rolled rarity, shop-allowed only;
+/// potion slots: the out-of-combat pool — always minus what other slots stock, plus the
+/// slot's own roll). Confirming assigns the identity ONCE: the slot shows the real item
+/// at its recomputed vanilla price and buys purely vanilla; restocks re-shade.
 ///
-/// Simulates the "best case" without save/load-scumming — the same philosophy as the
-/// reward pickers, one room deeper.
+/// Save-safety: every write is vanilla-reachable (stocked model, CalcCost RNG advance,
+/// stock-pull-style bag consumption); assigned-once flags are in-memory, so a mid-shop
+/// reload re-rolls vanilla. Real merchant only — event shops (FakeMerchant) stay vanilla.
 ///
-/// Save-safety: every write lands in vanilla-reachable state (the entry's stocked
-/// model, vanilla CalcCost RNG advancement, stock-pull-style grab-bag consumption of
-/// the assigned relic). The assigned-once flags live in memory only — mid-shop
-/// save/reload re-rolls the room vanilla-style, and install/uninstall mid-run is safe.
-/// Only the real merchant room — event shops (FakeMerchant) stay vanilla.
-///
-/// Multiplayer: every player assigns their OWN shop (each client shows only its local
-/// inventory; purchases replicate by resulting model, so a picked item propagates like
-/// any rolled one). The assignment itself is broadcast (ShopAssignMessage) and replayed
-/// on every client's replica of the sender's inventory, because it consumes grab-bag /
-/// Shops-rng / card-creation state that feeds deterministic rolls later.
+/// MP: each player assigns their OWN shop; the assignment broadcasts (ShopAssignMessage)
+/// and replays on every replica because it consumes grab-bag / Shops-rng / card-creation
+/// state that feeds later deterministic rolls. Purchases replicate by model, as vanilla.
 /// </summary>
 public static class ShopPicker
 {
@@ -98,7 +88,6 @@ public static class ShopPicker
             foreach (MerchantEntry entry in __result.AllEntries)
                 if (entry is MerchantCardEntry or MerchantRelicEntry or MerchantPotionEntry)
                     Eligible.TryAdd(entry, Marker);
-            MainFile.Logger.Info("[shop picker] merchant stocked; slots shaded");
         }
     }
 

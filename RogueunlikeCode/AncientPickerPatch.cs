@@ -15,34 +15,21 @@ using System.Threading.Tasks;
 namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
-/// Feature #5: pick your Ancient. Every act starts on an Ancient node (the friendly
-/// benefactor event — Neow, Darv, the Hive/Glory trios...). Vanilla rolls which Ancient
-/// you meet with the run-seed RNG at run start; this seam intercepts the map-node click
-/// and opens <see cref="ModAncientPickerUi"/> instead, then travels normally.
+/// Feature #5: pick your Ancient. Vanilla rolls the act-start Ancient at run start; this
+/// seam intercepts the map-node click and opens <see cref="ModAncientPickerUi"/>, then
+/// travels normally. (The RUN-START act auto-enters with no click — feature #5.2,
+/// AncientStartDesignatePatch, covers it.)
 ///
-/// Selection pool = loot pool at current context (never expanded): exactly what
-/// ActModel.GenerateRooms could have rolled for THIS act — the act's unlocked native
-/// Ancients plus the shared-Ancient subset dealt to this act at run start. The picker
-/// opens whenever there is any real choice: several candidates, or a single candidate
-/// (act 1 is always {Neow}, pre-epoch acts) whose dialogue slots the probe measures as
-/// having variation — the WHO may be forced while the option designations (feature
-/// #5.1, "what I'd like to talk about") are still worth picking. No Ancient is ever
-/// named: events whose options are modifier-built chains rather than slot rolls
-/// (Sealed Deck's Neow) probe to no-variation — the probe stubs modifier option hooks
-/// rather than execute them — and stay pure vanilla.
+/// Pool = exactly what ActModel.GenerateRooms could roll for THIS act (unlocked natives
+/// + dealt shared subset; never expanded). Opens only on a real choice: several
+/// candidates, or one whose dialogue slots the probe measures as designatable — no
+/// Ancient names hardcoded; modifier-driven chains probe to no-variation, stay vanilla.
 ///
-/// Save-safety, singleplayer: the only write is RoomSet.Ancient — the same field
-/// GenerateRooms rolls, serialized as AncientId in the vanilla run save — done BEFORE
-/// travel, so the room, run history, metrics and reload all read the choice through
-/// pure vanilla paths.
-///
-/// Multiplayer (every client modded — see <see cref="AncientPickSyncCmd.cs"/>): each
-/// player's confirm is broadcast as a networked console command through the vanilla
-/// lockstep action queue, and EventSynchronizer.BeginEvent clones each player's event
-/// from their pick. The saved state is untouched (the room keeps the vanilla-rolled
-/// EventId): quitting after the event completes reloads to that Ancient's done page
-/// with all gained benefits intact; quitting mid-event replays the room as the vanilla
-/// roll from the entry save — picks live in memory only.
+/// SP: the only write is RoomSet.Ancient — the field GenerateRooms rolls, saved as
+/// AncientId — done before travel, so everything downstream reads the pick through
+/// vanilla paths. MP: pick + designations broadcast via AncientPickConsoleCmd ahead of
+/// the travel vote (AncientPickSyncCmd.cs); saved state untouched, so a mid-event
+/// reload degrades to the vanilla roll.
 /// </summary>
 [HarmonyPatch(typeof(NMapScreen), nameof(NMapScreen.OnMapPointSelectedLocally))]
 public static class AncientPickerPatch
@@ -199,12 +186,11 @@ public static class MapInputGatePatch
     {
         if (!AncientPickerPatch.PickerOpen && !UnknownPickerPatch.PickerOpen)
             return true;
-        // The very click that opens a picker: its PRESS bubbled here first and armed the
-        // map's left-drag pan (_isDragging = true), and by the time its RELEASE bubbles
-        // up from the node, _pickerOpen is already set — so the gate would swallow the
-        // release and the map stays "held" after the picker closes (map glued to the
-        // mouse; visible in MP, where travel waits on the other players' votes and you
-        // remain on the map). Swallowing input while modal ⇒ also drop the drag arm.
+        // The node-click that OPENED the picker: its press armed the map's left-drag pan
+        // before the picker existed, and its release bubbles here after _pickerOpen is
+        // set — swallowed, leaving the map glued to the mouse once the picker closes
+        // (visible in MP, where travel waits on the other players' votes). Swallowing
+        // input while modal ⇒ also drop the drag arm.
         __instance._isDragging = false;
         return false;
     }

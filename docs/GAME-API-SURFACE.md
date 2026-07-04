@@ -101,7 +101,7 @@ pooled-NCard healing in `ModCardGridPicker.ForceHighlight`). `"Skip"` alternativ
 | `NRewardButton.GetReward` | prefix ×2 (nameof) | Pick-then-claim, `_passThrough` re-entry; potion and relic classes coexist on the same method (disjoint `IsActiveFor`) |
 | `NRewardButton.Reload` | postfix ×2 (nameof) | Row label/icon cosmetics |
 | `PotionReward."ExtraHoverTips"` / `RelicReward."ExtraHoverTips"` getters | prefix (string) | Roll-hiding tips |
-| `PotionReward.Populate` | prefix+postfix (nameof) | Roll witness: picker only for rewards Populate actually rolled (Potion was null at entry). Predetermined potions (`new PotionReward(potion, player)` — Potion Courier, Drowning Beacon, tutorial…) stay vanilla; relic side gets this free via `_predeterminedRelic == null` |
+| `PotionReward.Populate` | prefix+postfix (nameof) | Roll witness: picker only for rewards `Populate` actually rolled; predetermined potions (Potion Courier etc.) stay vanilla — the relic side gets this via `_predeterminedRelic` |
 
 Pool mirrors: relic = `RelicGrabBag._deques[rarity]` ∩ `IsAllowed` (+rolled) — mirrors
 `RelicFactory` pulls, **deliberately ignoring dry-deque rarity escalation**; potion =
@@ -133,7 +133,7 @@ Assignment mirrors each entry's vanilla stock path (`CreateCard`+`RollForUpgrade
 | `NTreasureRoomRelicCollection.InitializeRelics` | prefix (nameof) | Table layout for the expanded list |
 | `NTreasureRoomRelicHolder."OnFocus"` | postfix (string) | Shaded-holder tip swap |
 | `NTreasureRoomRelicCollection."_ExitTree"` | postfix (string) | Teardown |
-| `ScreenStateTracker."GetCurrentScreen"` | postfix (string) | Mid-round rewards overlay (relic-granted potions — an overlap vanilla's one-round chest never makes): keep reporting `SharedRelicPicking` while chest rounds live, else `NHandImageCollection` re-asserts the OS cursor per peer tick (`SetCursorShown`→`Input.MouseMode`) → cursor blinking over the hands. Also z-lifts `_hands` above the overlay stack for the overlap (vanilla does the same for RPS fights) so the hand stays the pointer over the rewards rows / mod pickers. Pause etc. not rewritten |
+| `ScreenStateTracker."GetCurrentScreen"` | postfix (string) | While chest rounds are live, `Rewards` reports rewrite to `SharedRelicPicking` (else `NHandImageCollection` re-asserts the OS cursor per peer tick — blinking) and `_hands` z-lifts above the overlay stack; pause etc. untouched. Details: TreasureChestPickerPatch.cs |
 
 Vanilla pieces REUSED (not copied): `RelicPickingResult.GenerateRelicFight`, `RelicCmd.Obtain`,
 `MoveToFallback`, `EndRelicVoting`, `PickRelicLocally`, `_hands.DoFight/GrabRelic`. The
@@ -147,19 +147,19 @@ Chest rarities assumed `{Common, Uncommon, Rare}` (= `RelicFactory.RollRarity` o
 ### ancient — features #5/#5.1
 | Target | Kind | Note |
 |---|---|---|
-| `NMapScreen.OnMapPointSelectedLocally` | prefix (nameof) | Click seam (Ancient nodes; coexists with feature #6's prefix — disjoint point types). NOT reached by act-START ancients: `RunManager.EnterAct`'s `StartedWithNeow` branch auto-enters `StartingMapPoint` with no click — feature #5.2 covers that |
-| `NMapScreen."_GuiInput"` | prefix (string) | Map input gate while a picker modal is up; also clears `_isDragging` while gating — the node-click press arms the left-drag pan before the picker exists and the gate eats the matching release (stuck map-drag otherwise, visible in MP where travel waits on votes) |
-| `EventSynchronizer.BeginEvent` | **transpiler** (nameof) | Redirects the loop's one `canonicalEvent.ToMutable()` to `PickFor(canonical, player, isPrefinished)` — the vanilla body runs whole. Patch-time asserts: exactly 1 `ToMutable` call site, exactly 1 `Player` local; violated ⇒ throw ⇒ ancient group off, loudly |
+| `NMapScreen.OnMapPointSelectedLocally` | prefix (nameof) | Click seam (Ancient nodes; disjoint from feature #6's prefix). Act-START ancients auto-enter with no click (`EnterAct`/`StartedWithNeow`) — feature #5.2's seam instead |
+| `NMapScreen."_GuiInput"` | prefix (string) | Map input gate while a picker modal is up; also clears `_isDragging` (the opening click's release is swallowed by the gate — stuck map-drag otherwise) |
+| `EventSynchronizer.BeginEvent` | **transpiler** (nameof) | Redirects the loop's one `canonicalEvent.ToMutable()` to `PickFor(...)` — vanilla body runs whole. Patch-time asserts (exactly 1 `ToMutable` call, 1 `Player` local) throw ⇒ ancient group off, loudly |
 | `AncientEventModel."GenerateInitialOptionsWrapper"` | postfix (string) | Slot designation AFTER the vanilla roll |
 | `RunManager.GenerateRooms` | postfix (nameof) | Pick-map reset |
-| runtime: every `ModifierModel."GenerateNeowOption"` impl (reflection sweep over `AccessTools.AllTypes()`) | prefix, lazy | Probe guards — modifier code must never execute while probing |
-| `NEventRoom."_Ready"` | postfix (string) | Feature #5.2 seam: act-0 `StartedWithNeow` auto-entered Ancient event → in-event designation modal over the opening dialogue (waits out the wirecheck + async event Begin via a RAW SceneTree timer — `Cmd.Wait` no-ops under FastMode=Instant; probe-gated). Confirm swaps the LIVE event's `_currentOptions`+`GeneratedOptions` in place and rebuilds rows via the room's own `SetOptions` — dialogue untouched |
+| runtime: every `ModifierModel."GenerateNeowOption"` impl (reflection sweep) | prefix, lazy | Probe guards — modifier code must never execute while probing |
+| `NEventRoom."_Ready"` | postfix (string) | Feature #5.2 seam: in-event designation modal for act-0 auto-entered Ancients (raw SceneTree timer — `Cmd.Wait` no-ops under FastMode=Instant); live swap + row rebuild via the room's own `SetOptions` |
 
 ### ancient-designate-net — feature #5.2 (own group; failure ⇒ `ForceBroken`, like reward-net)
 | Target | Kind | Note |
 |---|---|---|
-| `EventSynchronizer` ctor / `Dispose` | postfix ×2 | Register/unregister `AncientDesignateMessage` on the event message buffer (same stream as `OptionIndexChosenMessage` — per-sender FIFO puts the swap before the sender's choice-by-index; the lockstep cmd queue CANNOT order against that channel, which is why act-start designations don't ride `rl_ancient`) |
-| `AncientEventModel."SetInitialEventState"` | postfix (string) | Drain point for designates that outran a loading client — event `Begin` is async (heal first), so `BeginEvent` itself is too early; options exist exactly from here. Consumes ALL buffered entries for that player: apply if naming this event, drop otherwise (receiver-only late applies would desync) |
+| `EventSynchronizer` ctor (typed 5-arg) / `Dispose` | postfix ×2 | Register/unregister `AncientDesignateMessage` on the event message buffer — same stream as `OptionIndexChosenMessage`, whose per-sender FIFO is the ONLY ordering vs the sender's choice-by-index (the lockstep cmd queue can't order against it) |
+| `AncientEventModel."SetInitialEventState"` | postfix (string) | Drain for designates that outran a loading client (event `Begin` is async — `BeginEvent` itself is too early); consumes ALL of that player's buffered entries |
 
 Probe assumptions: `EventModel.Rng` is per-event and disposable (documented); `Owner`+`Rng`
 settable on a mutable clone; `GenerateInitialOptions` invocable via reflection without side
@@ -172,10 +172,8 @@ live-swap keeps it reference-aligned with `_currentOptions`), `AllPossibleOption
 `NEventRoom._event/_isPreFinished/_cts/SetOptions`, `EventSynchronizer._netService/_messageBuffer`,
 `ExtraRunFields.StartedWithNeow`. Live-apply assumptions: `SetInitialEventState` copies the
 SAME `EventOption` objects of `GeneratedOptions` into `_currentOptions` (verified), and the
-current page may hold MORE than the roll — other mods append options (BaseLib's Neow
-"additional interactions" = 4 options on a 3-slot roll, observed 2026-07-05) — so each
-designated slot is located on the live page BY REFERENCE to its rolled option; a missing
-roll (foreign replacement, advanced page) skips that slot, identically on every client.
+page may hold MORE than the roll (BaseLib appends Neow interactions — 4 on a 3-slot roll,
+observed 2026-07-05) — hence the by-reference slot lookup; a missing roll skips that slot.
 
 ### unknown — feature #6
 | Target | Kind | Note |

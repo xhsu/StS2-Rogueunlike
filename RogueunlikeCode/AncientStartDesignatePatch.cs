@@ -20,14 +20,11 @@ using System.Threading.Tasks;
 namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
-/// Feature #5.2, multiplayer half: "player S designated these option slots of their own
-/// act-start Ancient event". Unlike the acts-2/3 flow (rl_ancient enqueued BEFORE the
-/// travel vote, consumed at BeginEvent), the act-start event is AUTO-ENTERED at run start
-/// (RunManager.EnterAct's StartedWithNeow branch) with no travel action to order against —
-/// and event option choices are DIRECT messages (OptionIndexChosenMessage, resolved by
-/// INDEX on receipt), so the designation must ride the SAME per-sender FIFO stream to land
-/// on every client before the sender's first choice indexes into the swapped options.
-/// Same channel rule as RewardPickMessage vs the reward claim (see ModNetMsg.cs).
+/// Feature #5.2 wire message: "player S designated these option slots of their act-start
+/// Ancient event". Rides the EVENT message stream, not rl_ancient's action queue: option
+/// choices are direct messages resolved by INDEX on receipt, and only same-stream
+/// per-sender FIFO guarantees every client swaps before the sender's first choice
+/// (the channel rule of ModNetMsg.cs).
 /// </summary>
 public class AncientDesignateMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
 {
@@ -57,28 +54,22 @@ public class AncientDesignateMessage : INetMessage, IPacketSerializable, IRunLoc
 }
 
 /// <summary>
-/// Feature #5.2: designate the act-START Ancient's dialogue options (the "never prompted
-/// at act 1" gap). An act entered through RunManager.EnterAct's StartedWithNeow branch
-/// auto-enters the starting Ancient node — no map click ever happens, so the feature-#5
-/// map seam (NMapScreen.OnMapPointSelectedLocally) can never fire there. The designation
-/// window therefore moves INSIDE the event: when the auto-entered Ancient event screen
-/// opens for the local player and the probe measures designatable variation, the picker
-/// modal (ModAncientPickerUi, pool-of-one — the WHO is already decided) opens over the
-/// opening dialogue. Confirm swaps the designated slots of the LIVE event — in
-/// _currentOptions (what the UI renders and net choices index into) and GeneratedOptions
-/// (what run history records) — through the same Resolve/validation path as the pre-roll
-/// substitution; cancel keeps the roll. The vanilla RNG already ran at BeginEvent and is
-/// untouched either way, and nothing here is saved: a mid-event quit reloads the entry
-/// save and replays the room as the vanilla roll (the modal simply offers again).
+/// Feature #5.2: designate the act-START Ancient's dialogue options. Acts entered through
+/// RunManager.EnterAct's StartedWithNeow branch AUTO-ENTER the event — no map click, so
+/// the feature-#5 seam can never fire there. Instead, when the auto-entered Ancient event
+/// screen opens for the local player and the probe measures variation, the picker modal
+/// (pool-of-one — the WHO is decided) opens over the opening dialogue. Confirm swaps the
+/// designated slots of the LIVE event (the roll already happened; RNG untouched): in
+/// _currentOptions (UI + by-index net choices) and GeneratedOptions (run history), each
+/// slot's rolled option located BY REFERENCE — other mods append options to the page, so
+/// whole-list alignment would wrongly veto. Cancel keeps the roll. Zero save writes: a
+/// mid-event reload replays the vanilla roll and simply offers again.
 ///
-/// Multiplayer: confirm first broadcasts AncientDesignateMessage on the event message
-/// stream (see the message's doc for why THAT channel), then applies locally in the same
-/// frame — receivers apply the identical validated swap to their clone of the sender's
-/// event, so a later "player S chose option i" resolves identically everywhere. A
-/// designate that outruns a still-loading client buffers and drains when that event's
-/// initial options are set (AncientEventModel.SetInitialEventState — event Begin is
-/// async, so BeginEvent itself is too early). Gated on ModWireCheck.SyncReady: the modal
-/// waits out the handshake under the opening dialogue, then gives up to pure vanilla.
+/// MP: confirm broadcasts AncientDesignateMessage, then applies locally the same frame;
+/// receivers apply the identical validated swap to their clone of the sender's event.
+/// Early designates (receiver still loading) buffer until that event's
+/// SetInitialEventState. Gated on ModWireCheck.SyncReady — the modal waits out the
+/// handshake under the dialogue, then gives up to pure vanilla.
 /// </summary>
 public static class AncientStartDesignate
 {
@@ -103,14 +94,6 @@ public static class AncientStartDesignate
                 if (__instance._event is not AncientEventModel live)
                     return;
                 RunState? runState = RunManager.Instance?.State;
-                // Ancient event rooms are rare; one breadcrumb with every gate value so a
-                // "nothing prompted" report is diagnosable from the log alone.
-                MainFile.Logger.Info("[ancient start] event room ready: "
-                    + $"{live.Id.Entry}, actIndex={(runState == null ? "no-state" : runState.CurrentActIndex.ToString())}, "
-                    + $"startedWithNeow={runState?.ExtraFields.StartedWithNeow.ToString() ?? "?"}, "
-                    + $"preFinished={__instance._isPreFinished}, "
-                    + $"owner={(live.Owner == null ? "null" : live.Owner.NetId.ToString())}, "
-                    + $"isMe={live.Owner != null && LocalContext.IsMe(live.Owner)}");
                 if (runState == null
                     || runState.CurrentActIndex != 0
                     || !runState.ExtraFields.StartedWithNeow
@@ -118,7 +101,6 @@ public static class AncientStartDesignate
                     || live.Owner is not Player owner
                     || !LocalContext.IsMe(owner))
                     return;
-                MainFile.Logger.Info("[ancient start] act-start seam armed; starting designation flow");
                 TaskHelper.RunSafely(Flow(__instance, live, owner, runState));
             }
             catch (Exception e)
@@ -135,20 +117,14 @@ public static class AncientStartDesignate
             // Wait under the opening dialogue for (a) the event's initial options — Begin
             // is async (heal animation first) — and (b) the wirecheck, announced at run
             // start on the action queue and possibly still in flight this early.
-            int waited = 0;
-            for (; waited < WirecheckWaitTicks; waited++)
+            for (int i = 0; i < WirecheckWaitTicks; i++)
             {
                 if (!GodotObject.IsInstanceValid(room) || live.IsFinished)
-                {
-                    MainFile.Logger.Info("[ancient start] room gone/event finished while waiting; vanilla");
                     return;
-                }
                 if (live.CurrentOptions.Count > 0 && ModWireCheck.SyncReady(runState))
                     break;
                 await WaitTick(room);
             }
-            MainFile.Logger.Info($"[ancient start] settled after {waited} tick(s): "
-                + $"options={live.CurrentOptions.Count}, syncReady={ModWireCheck.SyncReady(runState)}, finished={live.IsFinished}");
             if (!GodotObject.IsInstanceValid(room) || live.IsFinished || live.CurrentOptions.Count == 0)
                 return;
             if (!ModWireCheck.SyncReady(runState))
@@ -162,32 +138,22 @@ public static class AncientStartDesignate
                 return;
             }
             if (ModelDb.GetByIdOrNull<EventModel>(live.Id) is not AncientEventModel canonical)
-            {
-                MainFile.Logger.Info($"[ancient start] no canonical model for {live.Id.Entry}; vanilla");
                 return;
-            }
             // Measured, never hardcoded — modifier-driven chains (Sealed Deck's Neow)
             // probe to no-variation and stay pure vanilla, same rule as the map picker.
             if (!AncientOptionProbe.HasVariation(owner, canonical))
             {
-                MainFile.Logger.Info($"[ancient start] {live.Id.Entry} has no designatable variation (fixed or modifier-driven); vanilla");
+                MainFile.Logger.Info($"[ancient start] {live.Id.Entry} has no designatable variation; vanilla");
                 return;
             }
 
-            MainFile.Logger.Info($"[ancient start] opening designation modal for {live.Id.Entry}");
             ModAncientPickerUi ui = ModAncientPickerUi.Attach(room, runState.UnlockState,
                 new List<AncientEventModel> { canonical }, canonical, owner);
             AncientPickResult? pick = await ui.Result;
             if (pick == null || pick.Options.Count == 0)
-            {
-                MainFile.Logger.Info("[ancient start] cancelled / nothing designated; the roll stands");
-                return;
-            }
+                return; // cancelled or nothing designated: the roll stands
             if (!GodotObject.IsInstanceValid(room) || !IsDesignatable(live))
-            {
-                MainFile.Logger.Info("[ancient start] room/event moved on while designating; vanilla");
-                return;
-            }
+                return; // room/event moved on while designating
 
             string tokens = string.Join(" ",
                 pick.Options.Select(o => $"{o.Slot}:{o.Option.Identity}"));
@@ -201,10 +167,8 @@ public static class AncientStartDesignate
                 MainFile.Logger.Error("[ancient start] designation not broadcast; vanilla roll kept");
                 return;
             }
-            int applied = ValidateAndApply(live, owner, tokens);
-            if (applied > 0)
+            if (ValidateAndApply(live, owner, tokens) > 0)
                 RefreshRoomOptions(room, live);
-            MainFile.Logger.Info($"[ancient start] player {owner.NetId} designated {applied} slot(s) of {live.Id.Entry}");
         }
         catch (Exception e)
         {
@@ -282,15 +246,10 @@ public static class AncientStartDesignate
     }
 
     /// <summary>
-    /// Validate tokens against the empirical slot pools (deterministic across clients:
-    /// fixed probe seeds + lockstep-identical player state — the same validation
-    /// rl_ancient's designations get), then swap each surviving designation in: the
-    /// wrapper-slot's rolled option is located on the live page BY REFERENCE (foreign
-    /// insertions shift indices; reference lookup doesn't care) and replaced in place —
-    /// in _currentOptions (what the UI renders and by-index net choices resolve against)
-    /// and GeneratedOptions (what run history records). A slot whose roll is no longer
-    /// on the page (another mod replaced it, page advanced) is skipped, on every client
-    /// alike. Returns how many slots changed.
+    /// Validate tokens against the empirical slot pools (deterministic across clients —
+    /// the same validation rl_ancient's designations get), then replace each surviving
+    /// designation's rolled option in BOTH lists, located by reference. Slots whose roll
+    /// left the page are skipped, identically everywhere. Returns how many slots changed.
     /// </summary>
     private static int ValidateAndApply(AncientEventModel live, Player owner, string designations)
     {
@@ -371,8 +330,7 @@ public static class AncientStartDesignate
             return false; // not begun (or options not set yet — Begin is async): buffer
         if (sync._playerCollection.GetPlayer(senderId) is not Player owner)
             return true; // sender gone: consume, nothing to apply to
-        int applied = ValidateAndApply(live, owner, msg.designations);
-        MainFile.Logger.Info($"[ancient start] player {senderId} designated {applied} slot(s) of {msg.ancientEntry} (remote)");
+        ValidateAndApply(live, owner, msg.designations);
         return true;
     }
 
@@ -396,10 +354,7 @@ public static class AncientStartDesignate
                     if (sender != owner.NetId)
                         continue;
                     if (msg.ancientEntry == __instance.Id.Entry)
-                    {
-                        int applied = ValidateAndApply(__instance, owner, msg.designations);
-                        MainFile.Logger.Info($"[ancient start] player {sender} designated {applied} slot(s) of {msg.ancientEntry} (drained)");
-                    }
+                        ValidateAndApply(__instance, owner, msg.designations);
                     _buffered.RemoveAt(i);
                     i--;
                 }

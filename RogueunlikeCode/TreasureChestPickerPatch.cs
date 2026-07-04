@@ -26,26 +26,22 @@ using System.Threading.Tasks;
 namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
-/// Feature #3.1: the treasure chest is a "Grand Relic Selection": every player picks
-/// their relic from the whole valid pool via the feature-#3 Relic Collection picker.
+/// Feature #3.1: the treasure chest as a "Grand Relic Selection" — every player picks
+/// from the whole valid pool via the feature-#3 relic picker.
 ///
-///   • The table shows the rolled relic(s) SHADED (the reward-row look from feature #3);
-///     clicking any table relic always opens the picker — there is no direct table vote.
-///     A shaded relic reveals itself once somebody actually votes for it (candidate-click
-///     discovery; the table is a ModSeenGate anchor so browsing/hovering reveals nothing).
-///   • Confirming in the picker casts your vote (a net-synced INDEX into the
-///     synchronizer's shared _currentRelics list, which this mod deterministically
-///     expands with the rest of the pool — so vanilla actions/vote icons/hands all work).
-///   • When every unresolved player has confirmed, the round resolves: sole voters get
-///     their relic; contested relics run the vanilla rock-paper-scissors fight and the
-///     winner takes it. Losers' votes reset and their picker reopens over the shrunken
-///     pool (won relics render dark — they left the grab bag via RelicCmd.Obtain).
-///     Rounds repeat until everyone is resolved. No consolation prizes — losers choose.
-///   • Rolled relics nobody took get vanilla's end-of-picking treatment (personal-bag
-///     MoveToFallback); untaken pool extras never left the bag and stay untouched.
+///   • The table shows the rolled relic(s) SHADED; any table click opens the picker
+///     (no direct vote). A shaded relic reveals once somebody votes for it.
+///   • Confirming casts your vote: a net-synced INDEX into the synchronizer's shared
+///     _currentRelics list, deterministically expanded with the rest of the pool — so
+///     vanilla actions, vote icons and hands all keep working.
+///   • When every unresolved player has confirmed, the round resolves: sole voters take
+///     their relic, contested relics run the vanilla RPS fight. Losers re-pick over the
+///     shrunken pool; rounds repeat until everyone is resolved.
+///   • Untaken rolled relics get vanilla's end-of-picking treatment (MoveToFallback);
+///     untaken extras never left the bag.
 ///
-/// NB: in real multiplayer every player must run this mod — an unmodded client would
-/// reject votes for indices beyond its own (unexpanded) list.
+/// Real MP requires every client modded (wire-gated): an unmodded client rejects votes
+/// for indices beyond its unexpanded list.
 /// </summary>
 public static class TreasureChestPicker
 {
@@ -686,23 +682,15 @@ public static class TreasureChestPicker
 
     // ---- mid-round rewards overlap: the hand stays THE pointer ----
 
-    // A relic won mid-rounds can pop a rewards overlay (Cauldron / Lost Coffer / Tiny
-    // Mailbox potions) while shared relic picking is still live for the other players —
-    // an overlap vanilla's one-round chest never produces. The tracker would report
-    // Rewards, and NHandImageCollection re-asserts the OS cursor from that report on
-    // EVERY peer input tick (SetCursorShown → Input.MouseMode), fighting the ceremony
-    // state: a blinking OS cursor over the still-shown hands. Keep reporting
-    // SharedRelicPicking for the whole chest phase instead (every client runs this —
-    // the expansion is wire-gated): the OS cursor stays hidden, remote arrow cursors
-    // stay suppressed, hands stay in — the hand IS the pointer, exactly like the rest
-    // of the chest. Pause/deck-view/other overlays are NOT rewritten, so menus opened
-    // over the chest keep the OS cursor.
-    //
-    // While the overlap is live, the hand layer is z-lifted above the overlay stack
-    // (rooms and GlobalUi overlays share canvas layer 0; vanilla z-bumps hands the same
-    // way for RPS fights) so hands render over the rewards rows and the feature-#2/#3
-    // pickers mounted on them. The tracker re-syncs on every overlay/SRP edge, so the
-    // lift and its restore ride these same calls — no per-frame work.
+    // A relic won mid-rounds can pop a rewards overlay (Cauldron-style potions) while
+    // shared picking is still live — an overlap vanilla's one-round chest never makes.
+    // A Rewards report would let NHandImageCollection re-assert the OS cursor on every
+    // peer tick (blinking cursor over the still-shown hands), so the chest phase keeps
+    // reporting SharedRelicPicking: cursor hidden, remote arrows suppressed, hands in.
+    // Pause/deck-view overlays are NOT rewritten — menus keep the OS cursor. While the
+    // overlap is live the hand layer is z-lifted above the overlay stack (same canvas
+    // layer; vanilla z-bumps hands for RPS fights) so hands render over the rewards
+    // rows and the pickers on them; lift and restore ride the tracker's own re-syncs.
     [HarmonyPatch(typeof(ScreenStateTracker), "GetCurrentScreen")]
     public static class ChestPhaseScreenTypePatch
     {

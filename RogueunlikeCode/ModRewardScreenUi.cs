@@ -59,7 +59,6 @@ public partial class ModRewardScreenUi : ModCardGridPicker
 
         _screen._banner.Visible = false; // hide the big centre banner; the bottom label carries the title
         _screen._lastFocusedControl = _grid;
-        MainFile.Logger.Info($"[reward] built cards={loot.Count}");
         return true;
     }
 

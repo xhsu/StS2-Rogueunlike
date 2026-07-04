@@ -23,15 +23,12 @@ namespace Rogueunlike.RogueunlikeCode;
 public static class PotionRewardPicker
 {
     private static readonly object Marker = new();
-    // Rewards whose potion we watched Populate() roll from the standard pool
-    // (PotionFactory.CreateRandomPotionOutOfCombat, no blacklist — exactly the pool the
-    // picker offers). Predetermined rewards (new PotionReward(potion, player): Potion
-    // Courier's Foul Potions, Drowning Beacon's Glowwater, event-rolled uncommons,
-    // tutorial potions) never enter: no roll means no choice AND the standard pool would
-    // be the wrong roster — the row stays pure vanilla, like the relic seam's
-    // predetermined guard. Vanilla RelicReward records this itself (_predeterminedRelic);
-    // PotionReward has no such field, hence the witness. In-memory only, never saved;
-    // MP-consistent because reward generation runs the same code on every client.
+    // Rewards whose potion we watched Populate() roll from the standard pool — exactly
+    // the pool the picker offers. Predetermined rewards (new PotionReward(potion, player):
+    // Potion Courier, tutorials, event-rolled potions) never enter — no roll, no choice,
+    // and the standard pool would be the wrong roster — the row stays vanilla, like the
+    // relic seam's _predeterminedRelic guard (a field PotionReward lacks, hence this
+    // witness). In-memory only; MP-consistent (generation runs identically everywhere).
     private static readonly ConditionalWeakTable<PotionReward, object> Rolled = new();
 
     internal static void MarkRolled(PotionReward reward) => Rolled.TryAdd(reward, Marker);

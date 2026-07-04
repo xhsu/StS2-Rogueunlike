@@ -20,25 +20,14 @@ using System.Threading.Tasks;
 namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
-/// "Select a relic" overlay: the compendium Relic Collection screen, repurposed as a
-/// picker (the relic twin of <see cref="ModPotionPickerUi"/>). Serves both the relic
-/// reward row (feature #3) and the treasure chest (feature #3.1). Borrows the game's own
-/// relic_collection scene wholesale — rarity sections with localized headers, character
-/// -pool outline colours, hover tips, back ribbon — and shows the relic roster:
-///   • pickable — a relic this source could roll at the current context: the remaining
-///     grab-bag relics of the eligible rarities, plus any already-rolled ones.
-///     Undiscovered ones are included and render with full art (never the compendium's
-///     "Unknown" silhouette); full colour, clickable;
-///   • locked — progression unlock not reached; the collection's lock icon and "locked"
-///     hover tip, not clickable (exactly as the vanilla collection renders it);
-///   • not a valid loot — unlocked but not rollable at the current context (starter/
-///     shop/ancient/event relics, other pools, relics already consumed this run); the
-///     collection's "not seen" darkening repurposed as a "can't drop here" hint, real
-///     hover tips kept.
-/// The selection pool equals the loot pool, never more. Categories (and ancient
-/// subcategories) with nothing pickable at all are hidden — locked relics don't keep
-/// a category alive.
-/// Click a pickable relic to highlight it, checkmark to take it, back ribbon to cancel.
+/// "Select a relic" overlay: the vanilla Relic Collection scene repurposed as a picker
+/// (the relic twin of <see cref="ModPotionPickerUi"/>), serving the reward row (feature
+/// #3) and the treasure chest (feature #3.1). Full roster in the standard three states:
+/// pickable (this source could roll it — remaining grab-bag relics of the eligible
+/// rarities plus the rolled ones; undiscovered ones render full art, never the "Unknown"
+/// silhouette), locked (progression), darkened (unlocked but not rollable here, tips
+/// kept). Categories with nothing pickable are hidden. Click to select, checkmark to
+/// take, back ribbon to cancel.
 /// </summary>
 public partial class ModRelicPickerUi : Control
 {
@@ -158,8 +147,6 @@ public partial class ModRelicPickerUi : Control
         {
             MainFile.Logger.Error($"[search] relic bar failed (picker still works without it): {e}");
         }
-
-        MainFile.Logger.Info($"[relic picker] built: {valid.Count} pickable of {ModelDb.AllRelics.Count()} total");
     }
 
     private static RelicRarity[] EligibleRarities(RelicReward reward) =>

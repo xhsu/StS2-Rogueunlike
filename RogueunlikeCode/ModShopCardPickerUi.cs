@@ -63,8 +63,6 @@ public partial class ModShopCardPickerUi : ModCardGridPicker
         WireGrid("ModShopCardGrid");
         BuildDeckChrome(ModUi.SelectCardLabel, includeBackButton: true);
         BuildSearchBar();
-
-        MainFile.Logger.Info($"[shop card picker] built: {_pickable.Count} pickable of {_shown.Count} shown");
     }
 
     protected override void OnConfirmPressed(CardModel pending) => Finish(pending);

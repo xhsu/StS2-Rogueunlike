@@ -18,26 +18,16 @@ namespace Rogueunlike.RogueunlikeCode;
 /// <summary>
 /// Feature #5, multiplayer half: each player meets THEIR OWN picked Ancient.
 ///
-/// The net channel is the game's own networked-console pipeline: DevConsole registers
-/// mod-defined <see cref="AbstractConsoleCmd"/> subclasses (ReflectionHelper.GetSubtypesInMods),
-/// and an IsNetworked command rides the vanilla ConsoleCmdGameAction/NetConsoleCmdGameAction
-/// wire type through the lockstep action queue — every client executes it, in the same
-/// order, with the SENDER as issuingPlayer. No serializer patching, no custom packets.
+/// Channel: the game's networked-console pipeline (DevConsole loads mod
+/// <see cref="AbstractConsoleCmd"/> subclasses; IsNetworked commands ride the vanilla
+/// ConsoleCmdGameAction wire through the lockstep action queue — same order everywhere,
+/// sender-attributed). Picks land in <see cref="AncientPickSync"/> identically on every
+/// client, and the queue puts each player's pick before their travel vote — so before
+/// room creation, where BeginEvent clones each player's event from their pick.
 ///
-/// Determinism: picks land in <see cref="AncientPickSync"/> identically on every client
-/// (validated against the same act pool), and the queue guarantees each player's pick
-/// executes before their travel vote — so before room creation. EventSynchronizer.BeginEvent
-/// then clones each player's event from their pick instead of the room's canonical; option
-/// choices already sync per player against their own event, so play proceeds vanilla.
-///
-/// Save-safety: nothing here writes saved state. The room still saves the vanilla-rolled
-/// EventId; the run saves at room entry and again (benefits + pre-finished flag, in one
-/// write) only when every player's event has finished. Reload after completion shows the
-/// saved Ancient's done page with all benefits intact; a mid-event quit reloads the
-/// entry save and replays the room as the vanilla roll, nothing gained twice.
-///
-/// Requires every client to run the mod (same rule as the treasure feature): an unmodded
-/// client would ignore the pick command and desync when a picked event's choice arrives.
+/// Nothing here writes saved state: the room keeps the vanilla-rolled EventId, so a
+/// mid-event quit replays the vanilla roll and a post-event quit reloads the done page
+/// with benefits intact. Requires every client to run the mod (wirecheck-gated).
 /// </summary>
 internal static class AncientPickSync
 {
@@ -149,19 +139,12 @@ public class AncientPickConsoleCmd : AbstractConsoleCmd
 }
 
 /// <summary>
-/// The substitution seam. Vanilla BeginEvent clones each player's mutable event from the
-/// shared canonical inside its per-player loop:
-///     EventModel eventModel = canonicalEvent.ToMutable();
-/// This transpiler redirects exactly that call to <see cref="PickFor"/>, which returns
-/// the player's synced pick when one is pending (canonical otherwise) — so the WHOLE
-/// vanilla body keeps running (vote resets, cleanup, logging, and anything MegaCrit adds
-/// later flow through automatically), and other mods' patches on BeginEvent are never
-/// bypassed (the old prefix skipped the original while substituting).
-///
-/// Deliberately assertion-loud instead of drift-silent: if the method ever stops having
-/// exactly one ToMutable call site and exactly one Player local, the transpiler THROWS at
-/// patch time — ModPatcher rolls back the whole ancient group and logs the feature as
-/// disabled, rather than guessing at a reshaped body.
+/// The substitution seam: a transpiler redirects BeginEvent's one per-player
+/// `canonicalEvent.ToMutable()` to <see cref="PickFor"/> (the player's synced pick when
+/// pending, canonical otherwise). The whole vanilla body keeps running and other mods'
+/// BeginEvent patches are never bypassed. Assertion-loud, not drift-silent: unless the
+/// body has exactly one ToMutable call and one Player local, patching THROWS and
+/// ModPatcher rolls the ancient group back rather than guessing at a reshaped body.
 /// </summary>
 [HarmonyPatch(typeof(EventSynchronizer), nameof(EventSynchronizer.BeginEvent))]
 public static class AncientEventSubstitutionPatch

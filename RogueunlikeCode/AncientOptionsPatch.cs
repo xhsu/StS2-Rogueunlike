@@ -30,16 +30,12 @@ public sealed class AncientPickResult
 }
 
 /// <summary>
-/// Feature #5.1, discovery half: the slot pools of an Ancient AT CURRENT CONTEXT,
-/// discovered empirically. EventModel.Rng is a per-event RNG documented as independent
-/// of the run's centralized streams (its state is disposable), so we can run the
-/// Ancient's own option generation on throwaway clones with reseeded RNG and union what
-/// each slot index produced. Anything observed is by definition vanilla-rollable for
-/// this player's deck and state — conditional options (Tanx's Tri-Boomerang, Pael's
-/// Claw...) appear exactly when their conditions hold, structure (Vakuu's one-per-pool
-/// slots) is captured per index, and no per-Ancient knowledge is hardcoded, so future
-/// game updates flow in. Fixed seeds + lockstep-identical player state make the result
-/// deterministic across multiplayer clients, which is what lets it validate picks.
+/// Feature #5.1, discovery half: an Ancient's per-slot option pools AT CURRENT CONTEXT,
+/// discovered empirically — EventModel.Rng is per-event and disposable, so the event's
+/// own generator runs on throwaway clones with reseeded RNG and each slot's outputs are
+/// unioned. Anything observed is vanilla-rollable for this player's state; nothing
+/// per-Ancient is hardcoded. Fixed seeds + lockstep-identical player state make the
+/// result deterministic across clients, which is what lets it validate synced picks.
 /// </summary>
 public static class AncientOptionProbe
 {
@@ -190,15 +186,12 @@ public static class AncientOptionProbe
 }
 
 /// <summary>
-/// Feature #5.1, substitution half. Runs AFTER the vanilla roll (whose RNG was consumed
-/// exactly as vanilla — save-safe) and swaps each designated slot for the designated
-/// option, resolved against the LIVE event instance so effects bind to the real run:
-/// authored options by TextKey from AllPossibleOptions (mirroring the game's own
-/// DebugOption forcing), relic options manufactured through the event's vanilla
-/// RelicOption helper. Slot count and structure therefore stay exactly vanilla;
-/// designations only ever put an option where the probe saw vanilla put it.
-/// Designations are consumed per player here; a Wax-Choker-blocked event (proceed-only)
-/// keeps its block, and a mid-event reload has no designations left — vanilla roll.
+/// Feature #5.1, substitution half: runs AFTER the vanilla roll (RNG consumed exactly as
+/// vanilla) and swaps each designated slot, resolved against the LIVE event so effects
+/// bind to the real run — authored options by TextKey (the game's own DebugOption
+/// forcing matches the same way), relic options through the event's RelicOption helper.
+/// Designations only ever put an option where the probe saw vanilla put it; blocked
+/// (proceed-only) events keep their block; a reload has no designations left.
 /// </summary>
 [HarmonyPatch(typeof(AncientEventModel), "GenerateInitialOptionsWrapper")]
 public static class AncientOptionSubstitutionPatch
