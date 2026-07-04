@@ -61,9 +61,24 @@ internal static class ModWireCheck
             + "Multiplayer pick features stay pure vanilla; singleplayer is unaffected.");
     }
 
-    internal static string ModVersion => _version ??=
-        ModManager.GetLoadedMods().FirstOrDefault(m => m.assembly == typeof(ModWireCheck).Assembly)
-            ?.manifest?.version ?? "unknown";
+    // Resolved by manifest id, and a FAILED lookup is never cached: the 2026-07-04
+    // friend-session logs showed "announced unknown" on every client — MainFile's load
+    // banner had read this while ModManager was still mid-load, and the old `??=`
+    // froze "unknown" for the whole session, neutering the handshake's version compare
+    // (message-id compare still worked). Only a successful lookup is cached.
+    internal static string ModVersion
+    {
+        get
+        {
+            if (_version != null)
+                return _version;
+            string? version = ModManager.GetLoadedMods()
+                .FirstOrDefault(m => m.manifest?.id == MainFile.ModId)?.manifest?.version;
+            if (version != null)
+                _version = version;
+            return version ?? "unknown";
+        }
+    }
 
     /// <summary>
     /// May sync-dependent features act? Singleplayer and fake multiplayer always (one

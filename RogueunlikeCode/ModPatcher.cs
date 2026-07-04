@@ -87,6 +87,7 @@ internal static class ModPatcher
                 Patches = new[]
                 {
                     typeof(PotionRewardPickPatch), typeof(PotionRewardLabelPatch), typeof(PotionRewardHoverTipPatch),
+                    typeof(PotionRewardRollWitnessPatch),
                     typeof(RelicRewardPickPatch), typeof(RelicRewardLabelPatch), typeof(RelicRewardHoverTipPatch),
                 },
             },

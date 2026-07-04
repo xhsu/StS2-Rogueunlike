@@ -101,10 +101,12 @@ pooled-NCard healing in `ModCardGridPicker.ForceHighlight`). `"Skip"` alternativ
 | `NRewardButton.GetReward` | prefix ×2 (nameof) | Pick-then-claim, `_passThrough` re-entry; potion and relic classes coexist on the same method (disjoint `IsActiveFor`) |
 | `NRewardButton.Reload` | postfix ×2 (nameof) | Row label/icon cosmetics |
 | `PotionReward."ExtraHoverTips"` / `RelicReward."ExtraHoverTips"` getters | prefix (string) | Roll-hiding tips |
+| `PotionReward.Populate` | prefix+postfix (nameof) | Roll witness: picker only for rewards Populate actually rolled (Potion was null at entry). Predetermined potions (`new PotionReward(potion, player)` — Potion Courier, Drowning Beacon, tutorial…) stay vanilla; relic side gets this free via `_predeterminedRelic == null` |
 
 Pool mirrors: relic = `RelicGrabBag._deques[rarity]` ∩ `IsAllowed` (+rolled) — mirrors
 `RelicFactory` pulls, **deliberately ignoring dry-deque rarity escalation**; potion =
-`PotionFactory.GetPotionOptions` (stateless = whole pool, no mirror needed). Bag consumption
+`PotionFactory.GetPotionOptions` (stateless = whole pool, no mirror needed — but valid ONLY
+for Populate-rolled rewards, hence the roll witness). Bag consumption
 belongs to the claim's `RelicCmd.Obtain` (by ModelId, every client) — never consume manually.
 
 ### shop — feature #4

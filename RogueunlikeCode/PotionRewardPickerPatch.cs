@@ -9,6 +9,7 @@ using MegaCrit.Sts2.Core.Nodes.Rewards;
 using MegaCrit.Sts2.Core.Rewards;
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace Rogueunlike.RogueunlikeCode;
@@ -18,18 +19,48 @@ namespace Rogueunlike.RogueunlikeCode;
 // offering every potion the reward could have rolled. The rolled potion is kept
 // underneath, so cancelling, save/reload and every non-picker path stay pure vanilla.
 // NRewardButton.GetReward is the only real-gameplay take-path (the other caller of
-// SelectLocalReward is test-mode only), so these three patches are the whole seam.
+// SelectLocalReward is test-mode only), so these patches are the whole seam.
 public static class PotionRewardPicker
 {
+    private static readonly object Marker = new();
+    // Rewards whose potion we watched Populate() roll from the standard pool
+    // (PotionFactory.CreateRandomPotionOutOfCombat, no blacklist — exactly the pool the
+    // picker offers). Predetermined rewards (new PotionReward(potion, player): Potion
+    // Courier's Foul Potions, Drowning Beacon's Glowwater, event-rolled uncommons,
+    // tutorial potions) never enter: no roll means no choice AND the standard pool would
+    // be the wrong roster — the row stays pure vanilla, like the relic seam's
+    // predetermined guard. Vanilla RelicReward records this itself (_predeterminedRelic);
+    // PotionReward has no such field, hence the witness. In-memory only, never saved;
+    // MP-consistent because reward generation runs the same code on every client.
+    private static readonly ConditionalWeakTable<PotionReward, object> Rolled = new();
+
+    internal static void MarkRolled(PotionReward reward) => Rolled.TryAdd(reward, Marker);
+
     // Multiplayer: remote peers re-run OnSelect against their replica of this reward, so
     // the pick is broadcast (RewardPickMessage, same FIFO channel as the vanilla claim)
     // right before the claim. Rewards a claim couldn't address on the wire (nested in a
     // linked set) stay vanilla in MP — the same rows vanilla itself syncs by index.
     public static bool IsActiveFor(Reward? reward) =>
         reward is PotionReward { IsPopulated: true } potionReward
+        && Rolled.TryGetValue(potionReward, out _)
         && ModWireCheck.SyncReady(potionReward.Player.RunState)
         && (potionReward.Player.RunState.Players.Count == 1
             || ModPickNet.TryResolveWireAddress(potionReward, out _, out _));
+}
+
+// The roll witness: PotionReward.Populate rolls ⟺ Potion was null at entry
+// (predetermined potions no-op through it). Mark only after the roll actually landed.
+[HarmonyPatch(typeof(PotionReward), nameof(PotionReward.Populate))]
+public static class PotionRewardRollWitnessPatch
+{
+    static void Prefix(PotionReward __instance, out bool __state) =>
+        __state = __instance.Potion == null;
+
+    static void Postfix(PotionReward __instance, bool __state)
+    {
+        if (__state && __instance.Potion != null)
+            PotionRewardPicker.MarkRolled(__instance);
+    }
 }
 
 // Replaces the take-flow: pick first, then run the vanilla claim with the picked potion.
