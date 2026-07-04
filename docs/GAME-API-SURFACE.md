@@ -31,7 +31,7 @@ targets, the mirrored bodies and the semantic assumptions listed here.
 | HarmonyLib (game-bundled `0Harmony.dll`) | All runtime patching |
 | `ModelDb` (`GetById/GetByIdOrNull/GetCategory/All*`) | Every model lookup; canonical instance space |
 | `Hook.*` (`ModifyCardRewardCreationOptions`, `TryModifyCardRewardOptions`, `ModifyMerchantCardPool/Rarity`, `ModifyNextEvent`, `ModifyUnknownMapPointRoomTypes`, `ModifyOddsIncreaseForUnrolledRoomType`, `AfterRoomEntered`) | Staying inside vanilla pipelines so other mods' hooks keep working |
-| `INetMessage` + `MessageTypes.Initialize` (mod-type splicing) | `RewardPickMessage`, `ShopAssignMessage` — **wire ids are load-order dependent**, hence the `rl_wirecheck` handshake |
+| `INetMessage` + `MessageTypes.Initialize` (mod-type splicing) | `RewardPickMessage`, `ShopAssignMessage`, `AncientDesignateMessage` — **wire ids are load-order dependent**, hence the `rl_wirecheck` handshake |
 | `AbstractConsoleCmd` + `ConsoleCmdGameAction` (DevConsole reflection registration) | `rl_wirecheck`, `rl_ancient`, `rl_unknown` — lockstep, sender-attributed, order-immune |
 | `LocString` / `gameplay_ui` table | All UI strings (mod keys with English fallbacks in code) |
 | `PreloadManager.Cache` / `SceneHelper` / `ResourceLoader` | Scene/asset loading |
@@ -147,12 +147,19 @@ Chest rarities assumed `{Common, Uncommon, Rare}` (= `RelicFactory.RollRarity` o
 ### ancient — features #5/#5.1
 | Target | Kind | Note |
 |---|---|---|
-| `NMapScreen.OnMapPointSelectedLocally` | prefix (nameof) | Click seam (Ancient nodes; coexists with feature #6's prefix — disjoint point types) |
+| `NMapScreen.OnMapPointSelectedLocally` | prefix (nameof) | Click seam (Ancient nodes; coexists with feature #6's prefix — disjoint point types). NOT reached by act-START ancients: `RunManager.EnterAct`'s `StartedWithNeow` branch auto-enters `StartingMapPoint` with no click — feature #5.2 covers that |
 | `NMapScreen."_GuiInput"` | prefix (string) | Map input gate while a picker modal is up; also clears `_isDragging` while gating — the node-click press arms the left-drag pan before the picker exists and the gate eats the matching release (stuck map-drag otherwise, visible in MP where travel waits on votes) |
 | `EventSynchronizer.BeginEvent` | **transpiler** (nameof) | Redirects the loop's one `canonicalEvent.ToMutable()` to `PickFor(canonical, player, isPrefinished)` — the vanilla body runs whole. Patch-time asserts: exactly 1 `ToMutable` call site, exactly 1 `Player` local; violated ⇒ throw ⇒ ancient group off, loudly |
 | `AncientEventModel."GenerateInitialOptionsWrapper"` | postfix (string) | Slot designation AFTER the vanilla roll |
 | `RunManager.GenerateRooms` | postfix (nameof) | Pick-map reset |
 | runtime: every `ModifierModel."GenerateNeowOption"` impl (reflection sweep over `AccessTools.AllTypes()`) | prefix, lazy | Probe guards — modifier code must never execute while probing |
+| `NEventRoom."_Ready"` | postfix (string) | Feature #5.2 seam: act-0 `StartedWithNeow` auto-entered Ancient event → in-event designation modal over the opening dialogue (waits out the wirecheck + async event Begin via a RAW SceneTree timer — `Cmd.Wait` no-ops under FastMode=Instant; probe-gated). Confirm swaps the LIVE event's `_currentOptions`+`GeneratedOptions` in place and rebuilds rows via the room's own `SetOptions` — dialogue untouched |
+
+### ancient-designate-net — feature #5.2 (own group; failure ⇒ `ForceBroken`, like reward-net)
+| Target | Kind | Note |
+|---|---|---|
+| `EventSynchronizer` ctor / `Dispose` | postfix ×2 | Register/unregister `AncientDesignateMessage` on the event message buffer (same stream as `OptionIndexChosenMessage` — per-sender FIFO puts the swap before the sender's choice-by-index; the lockstep cmd queue CANNOT order against that channel, which is why act-start designations don't ride `rl_ancient`) |
+| `AncientEventModel."SetInitialEventState"` | postfix (string) | Drain point for designates that outran a loading client — event `Begin` is async (heal first), so `BeginEvent` itself is too early; options exist exactly from here. Consumes ALL buffered entries for that player: apply if naming this event, drop otherwise (receiver-only late applies would desync) |
 
 Probe assumptions: `EventModel.Rng` is per-event and disposable (documented); `Owner`+`Rng`
 settable on a mutable clone; `GenerateInitialOptions` invocable via reflection without side
@@ -160,7 +167,15 @@ effects on run state; authored options identified by unique `TextKey`, relic opt
 `Relic.Id` (`RelicOption(pageName, customDonePage)` drops `customDonePage` — verified).
 Internals: `_playerVotes`, `_events`, `_pendingOptionTasks`, `_pageIndex`, `_canonicalEvent`,
 `_playerCollection`, `ActModel._rooms/_sharedAncientSubset`, `RoomSet.Ancient` (public setter,
-saved as `AncientId`), `NAncientMapPoint._icon/_outline`, `GeneratedOptions`, `AllPossibleOptions`.
+saved as `AncientId`), `NAncientMapPoint._icon/_outline`, `GeneratedOptions` (private List —
+live-swap keeps it reference-aligned with `_currentOptions`), `AllPossibleOptions`,
+`NEventRoom._event/_isPreFinished/_cts/SetOptions`, `EventSynchronizer._netService/_messageBuffer`,
+`ExtraRunFields.StartedWithNeow`. Live-apply assumptions: `SetInitialEventState` copies the
+SAME `EventOption` objects of `GeneratedOptions` into `_currentOptions` (verified), and the
+current page may hold MORE than the roll — other mods append options (BaseLib's Neow
+"additional interactions" = 4 options on a 3-slot roll, observed 2026-07-05) — so each
+designated slot is located on the live page BY REFERENCE to its rolled option; a missing
+roll (foreign replacement, advanced page) skips that slot, identically on every client.
 
 ### unknown — feature #6
 | Target | Kind | Note |
@@ -215,11 +230,14 @@ mirrored is read-only or pool-derivation logic:
 
 ## Wire formats (bump the MOD version whenever any of this changes)
 
-`rl_wirecheck <modVersion> <pickMsgId> <assignMsgId>` ·
+`rl_wirecheck <modVersion> <pickMsgId> <assignMsgId> <designateMsgId>` (4th id since v0.5.0;
+older announces read as -1 ⇒ mismatch ⇒ broken, loudly) ·
 `rl_ancient <ancientId> [slot:K|R:identity …]` ·
 `rl_unknown <col> <row> <fate|monster|elite|treasure|shop|event> [modelEntry]` ·
 `RewardPickMessage {location,setId,rewardIndex:8,isRelic,itemEntry}` ·
-`ShopAssignMessage {location,entryIndex:8,itemEntry}`.
+`ShopAssignMessage {location,entryIndex:8,itemEntry}` ·
+`AncientDesignateMessage {location,ancientEntry,designations}` (designations = space-joined
+`slot:K|R:identity` tokens, `rl_ancient`'s format).
 
 Two clients with the same mod version MUST be wire-identical — the handshake compares
 version strings and cannot see behavior differences (learned v0.3.0→v0.4.0: an old client

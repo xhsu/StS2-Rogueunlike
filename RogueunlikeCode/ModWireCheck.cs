@@ -27,10 +27,11 @@ namespace Rogueunlike.RogueunlikeCode;
 /// 2. Every sync feature assumes all clients run this mod (and the same version of it);
 ///    a bare client silently ignores our picks and desyncs later.
 ///
-/// So each client announces (modVersion, pickMsgId, assignMsgId) over the networked
-/// console-cmd channel — a BUILT-IN action type carrying a string, immune to ordering —
-/// and every sync-dependent feature stays pure vanilla until every player in the run
-/// has announced a matching tuple. Mismatch or absence degrades features, never state.
+/// So each client announces (modVersion, pickMsgId, assignMsgId, designateMsgId) over
+/// the networked console-cmd channel — a BUILT-IN action type carrying a string, immune
+/// to ordering — and every sync-dependent feature stays pure vanilla until every player
+/// in the run has announced a matching tuple. Mismatch or absence degrades features,
+/// never state.
 /// </summary>
 internal static class ModWireCheck
 {
@@ -117,11 +118,12 @@ internal static class ModWireCheck
                 return;
             int pickId = MessageTypes.TypeToId<RewardPickMessage>();
             int assignId = MessageTypes.TypeToId<ShopAssignMessage>();
-            string cmd = $"{WireCheckConsoleCmd.Name} {ModVersion} {pickId} {assignId}";
+            int designateId = MessageTypes.TypeToId<AncientDesignateMessage>();
+            string cmd = $"{WireCheckConsoleCmd.Name} {ModVersion} {pickId} {assignId} {designateId}";
             RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(new ConsoleCmdGameAction(
                 me, cmd, CombatManager.Instance?.IsInProgress ?? false));
             _announced = true;
-            MainFile.Logger.Info($"[wire check] announced {ModVersion} ids {pickId}/{assignId}");
+            MainFile.Logger.Info($"[wire check] announced {ModVersion} ids {pickId}/{assignId}/{designateId}");
         }
         catch (Exception e)
         {
@@ -129,19 +131,20 @@ internal static class ModWireCheck
         }
     }
 
-    internal static void RecordAnnounce(Player sender, string version, int pickId, int assignId, IRunState runState)
+    internal static void RecordAnnounce(Player sender, string version, int pickId, int assignId, int designateId, IRunState runState)
     {
         try
         {
             int myPick = MessageTypes.TypeToId<RewardPickMessage>();
             int myAssign = MessageTypes.TypeToId<ShopAssignMessage>();
-            if (version != ModVersion || pickId != myPick || assignId != myAssign)
+            int myDesignate = MessageTypes.TypeToId<AncientDesignateMessage>();
+            if (version != ModVersion || pickId != myPick || assignId != myAssign || designateId != myDesignate)
             {
                 _broken = true;
                 Verified = false;
                 MainFile.Logger.Error(
-                    $"[wire check] MISMATCH from player {sender.NetId}: theirs {version} ids {pickId}/{assignId}, "
-                    + $"ours {ModVersion} ids {myPick}/{myAssign}. Pick-sync features stay VANILLA this run. "
+                    $"[wire check] MISMATCH from player {sender.NetId}: theirs {version} ids {pickId}/{assignId}/{designateId}, "
+                    + $"ours {ModVersion} ids {myPick}/{myAssign}/{myDesignate}. Pick-sync features stay VANILLA this run. "
                     + "Fix: every player must run the same Rogueunlike version and the same mod set; if versions "
                     + "already match, arrange the mods in the SAME ORDER in the Mods menu on every machine "
                     + "(mod message ids are load-order based).");
@@ -154,7 +157,7 @@ internal static class ModWireCheck
             {
                 Verified = true;
                 MainFile.Logger.Info(
-                    $"[wire check] verified: {_matched.Count} player(s) on {ModVersion}, ids {myPick}/{myAssign}");
+                    $"[wire check] verified: {_matched.Count} player(s) on {ModVersion}, ids {myPick}/{myAssign}/{myDesignate}");
             }
             // A newcomer (rejoin / late load) has an empty ledger and needs everyone's
             // announce to verify on THEIR side — re-announce so they can. Bounded: each
@@ -173,17 +176,19 @@ internal static class ModWireCheck
 }
 
 /// <summary>
-/// The handshake wire format: `rl_wirecheck &lt;modVersion&gt; &lt;pickMsgId&gt; &lt;assignMsgId&gt;`,
+/// The handshake wire format: `rl_wirecheck &lt;modVersion&gt; &lt;pickMsgId&gt; &lt;assignMsgId&gt; &lt;designateMsgId&gt;`,
 /// executed lockstep on every client with the SENDER attributed (same official channel
 /// as <see cref="AncientPickConsoleCmd"/>). A client without this mod ignores the
 /// command — and equally never announces, which is exactly what keeps Verified false.
+/// An older-mod client announces fewer ids — its version string already mismatches, and
+/// the missing id (recorded as -1) mismatches too: broken either way, loudly.
 /// </summary>
 public class WireCheckConsoleCmd : AbstractConsoleCmd
 {
     public const string Name = "rl_wirecheck";
 
     public override string CmdName => Name;
-    public override string Args => "<modVersion:string> <pickMsgId:int> <assignMsgId:int>";
+    public override string Args => "<modVersion:string> <pickMsgId:int> <assignMsgId:int> <designateMsgId:int>";
     public override string Description => "[Rogueunlike] Internal multiplayer handshake: verifies mod version and message wire ids across all clients.";
     public override bool IsNetworked => true;
     public override bool DebugOnly => false;
@@ -196,10 +201,13 @@ public class WireCheckConsoleCmd : AbstractConsoleCmd
             if (issuingPlayer == null || args.Length < 3
                 || !int.TryParse(args[1], out int pickId) || !int.TryParse(args[2], out int assignId))
                 return new CmdResult(success: false, "malformed wire check");
+            int designateId = -1;
+            if (args.Length >= 4)
+                int.TryParse(args[3], out designateId);
             RunState? state = RunManager.Instance.State;
             if (state == null)
                 return new CmdResult(success: false, "no run in progress");
-            ModWireCheck.RecordAnnounce(issuingPlayer, args[0], pickId, assignId, state);
+            ModWireCheck.RecordAnnounce(issuingPlayer, args[0], pickId, assignId, designateId, state);
             return new CmdResult(success: true, $"[Rogueunlike] wire check from {issuingPlayer.NetId} recorded");
         }
         catch (Exception e)

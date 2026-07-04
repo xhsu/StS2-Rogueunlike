@@ -217,22 +217,8 @@ public static class AncientOptionSubstitutionPatch
                 return; // event blocked (Wax Choker): nothing to substitute into
 
             List<EventOption> options = __result.ToList();
-            var used = options.Select(SafeIdentity).ToHashSet(); // distinctness across kept rolls too
-            foreach ((int slot, string identity) in picks)
-            {
-                if (slot < 0 || slot >= options.Count || used.Contains(identity))
-                    continue;
-                EventOption? replacement = Resolve(__instance, identity);
-                if (replacement == null)
-                {
-                    MainFile.Logger.Info($"[ancient options] {identity} not resolvable on {__instance.Id.Entry}; slot {slot} keeps the roll");
-                    continue;
-                }
-                used.Remove(SafeIdentity(options[slot]));
-                options[slot] = replacement;
-                used.Add(identity);
-                MainFile.Logger.Info($"[ancient options] player {owner.NetId}: slot {slot} of {__instance.Id.Entry} -> {identity}");
-            }
+            if (ApplyDesignations(__instance, options, picks) == 0)
+                return;
             __result = options;
             __instance.GeneratedOptions = options; // run history records what was actually offered
         }
@@ -242,7 +228,38 @@ public static class AncientOptionSubstitutionPatch
         }
     }
 
-    private static string SafeIdentity(EventOption option)
+    /// <summary>
+    /// Swap each designated slot for its designated option, keeping option distinctness
+    /// across the kept rolls too. Shared by this pre-roll substitution (acts 2/3 — the
+    /// designations arrive before BeginEvent) and the act-start LIVE apply (feature #5.2,
+    /// AncientStartDesignate — the event already rolled). Deterministic on every client:
+    /// resolution is pure model data. Returns how many slots actually changed.
+    /// </summary>
+    internal static int ApplyDesignations(AncientEventModel ev, List<EventOption> options,
+        List<(int Slot, string Identity)> picks)
+    {
+        var used = options.Select(SafeIdentity).ToHashSet(); // distinctness across kept rolls too
+        int applied = 0;
+        foreach ((int slot, string identity) in picks)
+        {
+            if (slot < 0 || slot >= options.Count || used.Contains(identity))
+                continue;
+            EventOption? replacement = Resolve(ev, identity);
+            if (replacement == null)
+            {
+                MainFile.Logger.Info($"[ancient options] {identity} not resolvable on {ev.Id.Entry}; slot {slot} keeps the roll");
+                continue;
+            }
+            used.Remove(SafeIdentity(options[slot]));
+            options[slot] = replacement;
+            used.Add(identity);
+            applied++;
+            MainFile.Logger.Info($"[ancient options] player {ev.Owner?.NetId}: slot {slot} of {ev.Id.Entry} -> {identity}");
+        }
+        return applied;
+    }
+
+    internal static string SafeIdentity(EventOption option)
     {
         try
         {
@@ -254,7 +271,7 @@ public static class AncientOptionSubstitutionPatch
         }
     }
 
-    private static EventOption? Resolve(AncientEventModel ev, string identity)
+    internal static EventOption? Resolve(AncientEventModel ev, string identity)
     {
         try
         {

@@ -124,7 +124,23 @@ internal static class ModPatcher
                     typeof(AncientPickerPatch), typeof(MapInputGatePatch),
                     typeof(AncientEventSubstitutionPatch), typeof(AncientPickResetPatch),
                     typeof(AncientOptionSubstitutionPatch),
+                    typeof(AncientStartDesignate.EventRoomReadyPatch),
                 },
+            },
+            new()
+            {
+                Name = "ancient-designate-net",
+                Feature = "feature #5.2: act-start designation sync",
+                Patches = new[]
+                {
+                    typeof(AncientStartDesignate.SynchronizerCtorPatch),
+                    typeof(AncientStartDesignate.SynchronizerDisposePatch),
+                    typeof(AncientStartDesignate.InitialStateDrainPatch),
+                },
+                // Same rule as reward-net: without these handlers a remote's designate
+                // would never apply here (and ours never there) — the sender's later
+                // choice-by-index would then desync. No MP substitution may run at all.
+                OnFailure = () => ModWireCheck.ForceBroken("ancient designate handlers failed to install"),
             },
             new()
             {
