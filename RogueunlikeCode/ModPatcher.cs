@@ -112,7 +112,7 @@ internal static class ModPatcher
                 {
                     typeof(TreasureChestPicker.BeginRelicPickingPatch), typeof(TreasureChestPicker.OnPickedPatch),
                     typeof(TreasureChestPicker.InitializeRelicsPatch), typeof(TreasureChestPicker.ShadedHolderTipPatch),
-                    typeof(TreasureChestPicker.CollectionTeardownPatch),
+                    typeof(TreasureChestPicker.CollectionTeardownPatch), typeof(TreasureChestPicker.ChestPhaseScreenTypePatch),
                 },
             },
             new()

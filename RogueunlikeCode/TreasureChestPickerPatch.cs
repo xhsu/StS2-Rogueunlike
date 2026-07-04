@@ -2,6 +2,7 @@ using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Entities.TreasureRelicPicking;
@@ -9,6 +10,7 @@ using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
+using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
@@ -93,6 +95,7 @@ public static class TreasureChestPicker
             DynamicHolders.Clear();
             _awardsBegan = false;
             RoundAnimator.Reset();
+            ChestPhaseScreenTypePatch.Reset();
             List<RelicModel>? relics = __instance._currentRelics;
             if (relics == null || relics.Count == 0)
                 return; // empty chest (SilverCrucible etc.) — leave it empty
@@ -677,6 +680,65 @@ public static class TreasureChestPicker
             OpenPicker = null; // the picker node dies with the room and self-resolves
             DynamicHolders.Clear();
             Shaded.Clear();
+            ChestPhaseScreenTypePatch.Reset(); // hands died with the room; nothing to restore
+        }
+    }
+
+    // ---- mid-round rewards overlap: the hand stays THE pointer ----
+
+    // A relic won mid-rounds can pop a rewards overlay (Cauldron / Lost Coffer / Tiny
+    // Mailbox potions) while shared relic picking is still live for the other players —
+    // an overlap vanilla's one-round chest never produces. The tracker would report
+    // Rewards, and NHandImageCollection re-asserts the OS cursor from that report on
+    // EVERY peer input tick (SetCursorShown → Input.MouseMode), fighting the ceremony
+    // state: a blinking OS cursor over the still-shown hands. Keep reporting
+    // SharedRelicPicking for the whole chest phase instead (every client runs this —
+    // the expansion is wire-gated): the OS cursor stays hidden, remote arrow cursors
+    // stay suppressed, hands stay in — the hand IS the pointer, exactly like the rest
+    // of the chest. Pause/deck-view/other overlays are NOT rewritten, so menus opened
+    // over the chest keep the OS cursor.
+    //
+    // While the overlap is live, the hand layer is z-lifted above the overlay stack
+    // (rooms and GlobalUi overlays share canvas layer 0; vanilla z-bumps hands the same
+    // way for RPS fights) so hands render over the rewards rows and the feature-#2/#3
+    // pickers mounted on them. The tracker re-syncs on every overlay/SRP edge, so the
+    // lift and its restore ride these same calls — no per-frame work.
+    [HarmonyPatch(typeof(ScreenStateTracker), "GetCurrentScreen")]
+    public static class ChestPhaseScreenTypePatch
+    {
+        private const int HandsAboveOverlays = 10;
+        private static int _priorZ;
+        private static bool _lifted;
+
+        internal static void Reset() => _lifted = false;
+
+        static void Postfix(ScreenStateTracker __instance, ref NetScreenType __result)
+        {
+            bool overlap = __result == NetScreenType.Rewards
+                && Pool != null
+                && __instance._isInSharedRelicPicking;
+            if (overlap)
+                __result = NetScreenType.SharedRelicPicking;
+            SetHandsLifted(overlap);
+        }
+
+        private static void SetHandsLifted(bool lift)
+        {
+            if (lift == _lifted)
+                return;
+            if (Collection is not { } col || !GodotObject.IsInstanceValid(col)
+                || col._hands is not { } hands)
+                return;
+            if (lift)
+            {
+                _priorZ = hands.ZIndex;
+                hands.ZIndex = HandsAboveOverlays;
+            }
+            else
+            {
+                hands.ZIndex = _priorZ;
+            }
+            _lifted = lift;
         }
     }
 }

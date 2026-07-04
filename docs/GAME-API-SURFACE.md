@@ -133,6 +133,7 @@ Assignment mirrors each entry's vanilla stock path (`CreateCard`+`RollForUpgrade
 | `NTreasureRoomRelicCollection.InitializeRelics` | prefix (nameof) | Table layout for the expanded list |
 | `NTreasureRoomRelicHolder."OnFocus"` | postfix (string) | Shaded-holder tip swap |
 | `NTreasureRoomRelicCollection."_ExitTree"` | postfix (string) | Teardown |
+| `ScreenStateTracker."GetCurrentScreen"` | postfix (string) | Mid-round rewards overlay (relic-granted potions — an overlap vanilla's one-round chest never makes): keep reporting `SharedRelicPicking` while chest rounds live, else `NHandImageCollection` re-asserts the OS cursor per peer tick (`SetCursorShown`→`Input.MouseMode`) → cursor blinking over the hands. Also z-lifts `_hands` above the overlay stack for the overlap (vanilla does the same for RPS fights) so the hand stays the pointer over the rewards rows / mod pickers. Pause etc. not rewritten |
 
 Vanilla pieces REUSED (not copied): `RelicPickingResult.GenerateRelicFight`, `RelicCmd.Obtain`,
 `MoveToFallback`, `EndRelicVoting`, `PickRelicLocally`, `_hands.DoFight/GrabRelic`. The
