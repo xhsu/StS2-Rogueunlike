@@ -54,7 +54,10 @@ public static class TreasureChestPicker
     // ponytail: dynamic holders go in rows under the authored four slots; tune by eye.
     private const float ExtraRowOffset = 280f;
 
-    private static readonly FieldInfo VotesChangedField = AccessTools.Field(
+    // Null when a game update renames the event — RaiseVotesChanged then no-ops (vote
+    // icons stop refreshing on remote votes; resolution itself is unaffected). The
+    // startup health check reports this case loudly.
+    private static readonly FieldInfo? VotesChangedField = AccessTools.Field(
         typeof(TreasureRoomRelicSynchronizer), nameof(TreasureRoomRelicSynchronizer.VotesChanged));
 
     // Per-room state, reset on every BeginRelicPicking.
@@ -72,7 +75,7 @@ public static class TreasureChestPicker
     private static bool _awardsBegan;
 
     private static void RaiseVotesChanged(TreasureRoomRelicSynchronizer sync) =>
-        (VotesChangedField.GetValue(sync) as Action)?.Invoke();
+        (VotesChangedField?.GetValue(sync) as Action)?.Invoke();
 
     // ---- pool expansion (state side; runs on every client identically) ----
 

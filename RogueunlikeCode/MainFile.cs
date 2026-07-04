@@ -1,5 +1,4 @@
 using Godot;
-using HarmonyLib;
 using MegaCrit.Sts2.Core.Modding;
 
 namespace Rogueunlike.RogueunlikeCode;
@@ -14,9 +13,11 @@ public partial class MainFile : Node
 
     public static void Initialize()
     {
-        Logger.Info("Hello from Rogueunlike! Mod loaded successfully.");
-
-        Harmony harmony = new(ModId);
-        harmony.PatchAll();
+        Logger.Info($"Rogueunlike {ModWireCheck.ModVersion} loading.");
+        // Per-feature-group patching (one broken game seam disables ONE feature, loudly,
+        // instead of killing the mod) + startup drift/asset checks. Map of every game
+        // API touched: docs/GAME-API-SURFACE.md.
+        ModPatcher.ApplyAll();
+        ModHealthCheck.Run();
     }
 }

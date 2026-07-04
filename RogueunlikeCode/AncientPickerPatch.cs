@@ -108,35 +108,47 @@ public static class AncientPickerPatch
         _pickerOpen = true;
         try
         {
-            if (LocalContext.GetMe(runState) is not Player me)
+            // The click was consumed to open the picker, so a picker failure MUST fall
+            // through to vanilla travel — a persistently broken picker (game update
+            // reshaping a scavenged scene) would otherwise make the node unclickable
+            // and block the run. Only an explicit cancel stays on the map.
+            try
             {
-                MainFile.Logger.Error("[ancient picker] local player not found; vanilla travel");
+                if (LocalContext.GetMe(runState) is not Player me)
+                    throw new System.InvalidOperationException("local player not found");
+                ModAncientPickerUi ui = ModAncientPickerUi.Attach(screen, runState.UnlockState, valid, act.Ancient, me);
+                AncientPickResult? pick = await ui.Result;
+                if (pick == null)
+                    return; // cancelled: stay on the map, node re-clickable
+                if (!GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
+                    return; // the map died under us; nothing to travel
+                AncientEventModel choice = pick.Ancient;
+                if (runState.Players.Count > 1)
+                {
+                    // MP (real or fake): broadcast pick + designations through the lockstep
+                    // queue. Enqueued BEFORE the travel vote below, so every client records
+                    // them before room creation. Shared/saved state stays untouched.
+                    string cmd = $"{AncientPickConsoleCmd.Name} {choice.Id.Entry}"
+                        + string.Concat(pick.Options.Select(o => $" {o.Slot}:{o.Option.Identity}"));
+                    RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(
+                        new ConsoleCmdGameAction(me, cmd, inCombat: false));
+                }
+                else
+                {
+                    act._rooms.Ancient = choice; // vanilla-reachable: the field GenerateRooms rolls, saved as AncientId
+                    AncientPickSync.RecordOptions(me.NetId, choice.Id.Entry,
+                        pick.Options.Select(o => (o.Slot, o.Option.Identity)).ToList());
+                }
+                MainFile.Logger.Info($"[ancient picker] act {runState.CurrentActIndex + 1} ancient pick: "
+                    + $"{choice.Id} ({pick.Options.Count} designation(s))");
+                RefreshNodeIcon(point, choice);
+            }
+            catch (System.Exception e)
+            {
+                MainFile.Logger.Error($"[ancient picker] picker failed; falling back to vanilla travel: {e}");
+            }
+            if (!GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
                 return;
-            }
-            ModAncientPickerUi ui = ModAncientPickerUi.Attach(screen, runState.UnlockState, valid, act.Ancient, me);
-            AncientPickResult? pick = await ui.Result;
-            if (pick == null || !GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
-                return; // cancelled (or the map died under us): stay on the map, node re-clickable
-            AncientEventModel choice = pick.Ancient;
-            if (runState.Players.Count > 1)
-            {
-                // MP (real or fake): broadcast pick + designations through the lockstep
-                // queue. Enqueued BEFORE the travel vote below, so every client records
-                // them before room creation. Shared/saved state stays untouched.
-                string cmd = $"{AncientPickConsoleCmd.Name} {choice.Id.Entry}"
-                    + string.Concat(pick.Options.Select(o => $" {o.Slot}:{o.Option.Identity}"));
-                RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(
-                    new ConsoleCmdGameAction(me, cmd, inCombat: false));
-            }
-            else
-            {
-                act._rooms.Ancient = choice; // vanilla-reachable: the field GenerateRooms rolls, saved as AncientId
-                AncientPickSync.RecordOptions(me.NetId, choice.Id.Entry,
-                    pick.Options.Select(o => (o.Slot, o.Option.Identity)).ToList());
-            }
-            MainFile.Logger.Info($"[ancient picker] act {runState.CurrentActIndex + 1} ancient pick: "
-                + $"{choice.Id} ({pick.Options.Count} designation(s))");
-            RefreshNodeIcon(point, choice);
             _passThrough = true;
             try
             {

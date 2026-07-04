@@ -35,7 +35,10 @@ internal static class ModUi
         while (attach != null && attach is not NRewardsScreen
                && attach is not NTreasureRoom && attach is not NMerchantRoom)
             attach = attach.GetParent();
-        attach ??= host.GetTree().Root;
+        // GetTree() is null for an out-of-tree host (a torn-down screen) — better to
+        // throw a clear message into the caller's fallback than NRE on .Root.
+        attach ??= host.GetTree()?.Root
+            ?? throw new InvalidOperationException("picker mount host is not in the scene tree");
         // Treasure chest: in MP the screen hides the OS cursor and every player points
         // with a networked hand sprite (NHandImageCollection, a child of the chest
         // screen). Mounted on top of the room the picker would cover the hands and

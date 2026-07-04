@@ -93,34 +93,46 @@ public static class UnknownPickerPatch
         _pickerOpen = true;
         try
         {
-            if (LocalContext.GetMe(runState) is not Player me)
+            // The click was consumed to open the picker, so a picker failure MUST fall
+            // through to vanilla travel (no vote = a fate vote) — a persistently broken
+            // picker would otherwise make every ? node unclickable and block the run.
+            // Only an explicit cancel stays on the map.
+            try
             {
-                MainFile.Logger.Error("[unknown picker] local player not found; vanilla travel");
+                if (LocalContext.GetMe(runState) is not Player me)
+                    throw new System.InvalidOperationException("local player not found");
+                MapCoord coord = point.Point.coord;
+                ModUnknownPickerUi ui = ModUnknownPickerUi.Attach(screen, runState, me, coord, chances);
+                UnknownPickResult? pick = await ui.Result;
+                if (pick == null)
+                    return; // cancelled: stay on the map, node re-clickable
+                if (!GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
+                    return; // the map died under us; nothing to travel
+                string content = pick.Model != null ? $" {pick.Model.Entry}" : "";
+                if (runState.Players.Count > 1)
+                {
+                    // MP (real or fake): broadcast the vote through the lockstep queue —
+                    // enqueued BEFORE the travel vote below, so every client records it
+                    // before any client can begin the travel that consumes it.
+                    string cmd = pick.IsFate
+                        ? $"{UnknownPickConsoleCmd.Name} {coord.col} {coord.row} fate"
+                        : $"{UnknownPickConsoleCmd.Name} {coord.col} {coord.row} {pick.Category}{content}";
+                    RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(
+                        new ConsoleCmdGameAction(me, cmd, inCombat: false));
+                }
+                else
+                {
+                    UnknownPickSync.Record(coord, me.NetId, pick.IsFate, pick.Category, pick.Model);
+                }
+                MainFile.Logger.Info($"[unknown picker] local vote at {coord}: "
+                    + (pick.IsFate ? "fate" : $"{pick.Category}{content}"));
+            }
+            catch (System.Exception e)
+            {
+                MainFile.Logger.Error($"[unknown picker] picker failed; falling back to vanilla travel: {e}");
+            }
+            if (!GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
                 return;
-            }
-            MapCoord coord = point.Point.coord;
-            ModUnknownPickerUi ui = ModUnknownPickerUi.Attach(screen, runState, me, coord, chances);
-            UnknownPickResult? pick = await ui.Result;
-            if (pick == null || !GodotObject.IsInstanceValid(screen) || !GodotObject.IsInstanceValid(point))
-                return; // cancelled (or the map died under us): stay on the map, node re-clickable
-            string content = pick.Model != null ? $" {pick.Model.Entry}" : "";
-            if (runState.Players.Count > 1)
-            {
-                // MP (real or fake): broadcast the vote through the lockstep queue —
-                // enqueued BEFORE the travel vote below, so every client records it
-                // before any client can begin the travel that consumes it.
-                string cmd = pick.IsFate
-                    ? $"{UnknownPickConsoleCmd.Name} {coord.col} {coord.row} fate"
-                    : $"{UnknownPickConsoleCmd.Name} {coord.col} {coord.row} {pick.Category}{content}";
-                RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(
-                    new ConsoleCmdGameAction(me, cmd, inCombat: false));
-            }
-            else
-            {
-                UnknownPickSync.Record(coord, me.NetId, pick.IsFate, pick.Category, pick.Model);
-            }
-            MainFile.Logger.Info($"[unknown picker] local vote at {coord}: "
-                + (pick.IsFate ? "fate" : $"{pick.Category}{content}"));
             _passThrough = true;
             try
             {

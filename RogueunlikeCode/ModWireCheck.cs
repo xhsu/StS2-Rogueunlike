@@ -36,6 +36,7 @@ internal static class ModWireCheck
 {
     private static readonly HashSet<ulong> _matched = new();
     private static bool _broken;
+    private static bool _permanentlyBroken;
     private static bool _announced;
     private static string? _version;
 
@@ -43,7 +44,22 @@ internal static class ModWireCheck
     internal static bool Verified { get; private set; }
 
     /// <summary>A mismatching announce arrived — incoming mod messages may be mis-decoded garbage.</summary>
-    internal static bool Broken => _broken;
+    internal static bool Broken => _broken || _permanentlyBroken;
+
+    /// <summary>
+    /// Session-permanent poison, set when the mod's own net layer failed to install
+    /// (ModPatcher): this client could neither apply remote picks nor have its own
+    /// applied remotely, so no MP substitution may ever run. Survives Reset — the
+    /// broken machinery doesn't heal between runs. Singleplayer is unaffected
+    /// (SyncReady's SP/fake-MP branch never consults Verified).
+    /// </summary>
+    internal static void ForceBroken(string reason)
+    {
+        _permanentlyBroken = true;
+        Verified = false;
+        MainFile.Logger.Error($"[wire check] sync permanently disabled this session: {reason}. "
+            + "Multiplayer pick features stay pure vanilla; singleplayer is unaffected.");
+    }
 
     internal static string ModVersion => _version ??=
         ModManager.GetLoadedMods().FirstOrDefault(m => m.assembly == typeof(ModWireCheck).Assembly)
@@ -75,7 +91,9 @@ internal static class ModWireCheck
     /// </summary>
     internal static void TryAnnounce(IRunState? runState)
     {
-        if (_announced || runState == null || runState.Players.Count <= 1
+        // Never announce while permanently broken: a matching announce would let OTHER
+        // clients verify and substitute against our missing/unusable handlers.
+        if (_announced || _permanentlyBroken || runState == null || runState.Players.Count <= 1
             || RunManager.Instance?.IsSingleplayerOrFakeMultiplayer != false)
             return;
         try
@@ -114,7 +132,7 @@ internal static class ModWireCheck
                     + "(mod message ids are load-order based).");
                 return;
             }
-            if (_broken)
+            if (Broken)
                 return;
             bool isNew = _matched.Add(sender.NetId);
             if (!Verified && _matched.Count >= runState.Players.Count)
