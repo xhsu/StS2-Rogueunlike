@@ -22,7 +22,7 @@ namespace Rogueunlike.RogueunlikeCode;
 /// <summary>
 /// Shared machinery for the mod's card-grid pickers — the Grand Card Selection reward
 /// screen (<see cref="ModRewardScreenUi"/>) and the merchant card picker
-/// (<see cref="ModShopCardPickerUi"/>). Owns everything the two have in common:
+/// (<see cref="ModCardPickModal"/>, both mount modes). Owns everything they share:
 ///   • the scrollable <see cref="NCardGrid"/> + checkmark <see cref="NConfirmButton"/>
 ///     borrowed from the simple-card-select scene;
 ///   • the deck-view chrome: sort bar grafted into the grid's ScrollContainer (so it

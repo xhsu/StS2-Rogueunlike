@@ -1,14 +1,20 @@
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.Potions;
+using MegaCrit.Sts2.Core.Factories;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Models.Events;
+using MegaCrit.Sts2.Core.Models.PotionPools;
 using MegaCrit.Sts2.Core.Nodes.Potions;
 using MegaCrit.Sts2.Core.Nodes.Rewards;
 using MegaCrit.Sts2.Core.Rewards;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
@@ -33,16 +39,103 @@ public static class PotionRewardPicker
 
     internal static void MarkRolled(PotionReward reward) => Rolled.TryAdd(reward, Marker);
 
+    // ---- event-rolled predetermined rewards (feature #2's missing half, closed in v0.6.0) ----
+    //
+    // Five vanilla sources roll a potion with PlayerRng.Rewards.NextItem over the
+    // character+shared unlocked set (Potion Courier's Ransack filters to Uncommon) and
+    // wrap the result as a PREDETERMINED PotionReward — a roll the standard witness
+    // above can't see. Their handlers are bracketed (RolledPotionScopePatches) and every
+    // predetermined PotionReward constructed inside a bracket is tagged with the
+    // bracket's pool filter; the picker then offers exactly that pool. Fixed-potion
+    // rewards (Foul Potion, Glowwater) construct outside any bracket and stay vanilla.
+    // In-memory only; tags exist identically on every client (event handlers run
+    // everywhere in lockstep, like the reward replicas they build).
+    internal sealed class EventRollScope
+    {
+        public PotionRarity? Rarity; // null = the full character+shared unlocked set
+    }
+
+    private static readonly ConditionalWeakTable<PotionReward, EventRollScope> ScopeTagged = new();
+
+    internal static EventRollScope? CurrentScope;
+
+    internal static void TagIfInScope(PotionReward reward)
+    {
+        if (CurrentScope is { } scope)
+            ScopeTagged.AddOrUpdate(reward, scope);
+    }
+
+    internal static bool TryGetScope(PotionReward reward, out EventRollScope? scope) =>
+        ScopeTagged.TryGetValue(reward, out scope);
+
+    /// <summary>The exact pool those events roll from: character + shared unlocked, optionally rarity-filtered.</summary>
+    internal static HashSet<PotionModel> EventPool(Player player, EventRollScope scope) =>
+        player.Character.PotionPool.GetUnlockedPotions(player.UnlockState)
+            .Concat(ModelDb.PotionPool<SharedPotionPool>().GetUnlockedPotions(player.UnlockState))
+            .Where(p => scope.Rarity == null || p.Rarity == scope.Rarity)
+            .ToHashSet();
+
     // Multiplayer: remote peers re-run OnSelect against their replica of this reward, so
     // the pick is broadcast (RewardPickMessage, same FIFO channel as the vanilla claim)
     // right before the claim. Rewards a claim couldn't address on the wire (nested in a
     // linked set) stay vanilla in MP — the same rows vanilla itself syncs by index.
     public static bool IsActiveFor(Reward? reward) =>
         reward is PotionReward { IsPopulated: true } potionReward
-        && Rolled.TryGetValue(potionReward, out _)
+        && (Rolled.TryGetValue(potionReward, out _) || ScopeTagged.TryGetValue(potionReward, out _))
         && ModWireCheck.SyncReady(potionReward.Player.RunState)
         && (potionReward.Player.RunState.Players.Count == 1
             || ModPickNet.TryResolveWireAddress(potionReward, out _, out _));
+}
+
+// The event-handler brackets, MoveNext-level (MethodType.Async): the scope opens on
+// every resumption slice of the handler and closes when the slice yields (finalizer, so
+// throws close it too) — the reward ctor lands in one of those slices no matter how many
+// awaits precede the roll (The Legends Were True rolls after a damage await; Battleworn
+// Dummy rolls in its post-combat Resume). A stub-level pair would close at the first
+// suspension and miss those. Anything constructed by code CALLED within a slice is
+// event-owned by definition — vanilla builds these reward lists inline in the handler.
+[HarmonyPatch]
+public static class RolledPotionScopePatches
+{
+    private static readonly PotionRewardPicker.EventRollScope UncommonPool = new() { Rarity = PotionRarity.Uncommon };
+    private static readonly PotionRewardPicker.EventRollScope FullPool = new();
+
+    [HarmonyPrefix, HarmonyPatch(typeof(PotionCourier), "Ransack", MethodType.Async)]
+    static void RansackBegin() => PotionRewardPicker.CurrentScope = UncommonPool;
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(PotionCourier), "Ransack", MethodType.Async)]
+    static void RansackEnd() => PotionRewardPicker.CurrentScope = null;
+
+    [HarmonyPrefix, HarmonyPatch(typeof(Wellspring), "Bottle", MethodType.Async)]
+    static void BottleBegin() => PotionRewardPicker.CurrentScope = FullPool;
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(Wellspring), "Bottle", MethodType.Async)]
+    static void BottleEnd() => PotionRewardPicker.CurrentScope = null;
+
+    [HarmonyPrefix, HarmonyPatch(typeof(TheLegendsWereTrue), "SlowlyFindAnExit", MethodType.Async)]
+    static void LegendsBegin() => PotionRewardPicker.CurrentScope = FullPool;
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(TheLegendsWereTrue), "SlowlyFindAnExit", MethodType.Async)]
+    static void LegendsEnd() => PotionRewardPicker.CurrentScope = null;
+
+    [HarmonyPrefix, HarmonyPatch(typeof(BattlewornDummy), "Resume", MethodType.Async)]
+    static void DummyBegin() => PotionRewardPicker.CurrentScope = FullPool;
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(BattlewornDummy), "Resume", MethodType.Async)]
+    static void DummyEnd() => PotionRewardPicker.CurrentScope = null;
+
+    [HarmonyPrefix, HarmonyPatch(typeof(EndlessConveyor), "SuspiciousCondiment", MethodType.Async)]
+    static void CondimentBegin() => PotionRewardPicker.CurrentScope = FullPool;
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(EndlessConveyor), "SuspiciousCondiment", MethodType.Async)]
+    static void CondimentEnd() => PotionRewardPicker.CurrentScope = null;
+}
+
+// Tag every predetermined reward constructed inside a roll bracket.
+[HarmonyPatch(typeof(PotionReward), MethodType.Constructor, typeof(PotionModel), typeof(Player))]
+public static class PredeterminedPotionTagPatch
+{
+    static void Postfix(PotionReward __instance) => PotionRewardPicker.TagIfInScope(__instance);
 }
 
 // The roll witness: PotionReward.Populate rolls ⟺ Potion was null at entry
@@ -82,7 +175,14 @@ public static class PotionRewardPickPatch
         bool pickerFailed = false;
         try
         {
-            choice = await ModPotionPickerUi.Show(button, reward.Player);
+            // Standard-roll rewards offer the stateless loot pool; event-roll-tagged
+            // rewards offer exactly the pool their event rolled from.
+            HashSet<PotionModel> valid =
+                PotionRewardPicker.TryGetScope(reward, out PotionRewardPicker.EventRollScope? scope)
+                && scope != null
+                    ? PotionRewardPicker.EventPool(reward.Player, scope)
+                    : PotionFactory.GetPotionOptions(reward.Player, Array.Empty<PotionModel>()).ToHashSet();
+            choice = await ModPotionPickerUi.Attach(button, reward.Player, valid).Result;
         }
         catch (Exception e)
         {

@@ -79,6 +79,7 @@ internal static class ModPatcher
                     typeof(CardGridVisibilityPatch), typeof(CardGridSparklePatch),
                     typeof(CardRewardGetHolderPatch),
                     typeof(CardRollOriginWitnessPatch), typeof(FixedCardRewardExpandPatch),
+                    typeof(ChooseACardExpandPatch), typeof(SimpleGridRewardsExpandPatch),
                 },
             },
             new()
@@ -92,6 +93,17 @@ internal static class ModPatcher
                     typeof(RelicRewardPickPatch), typeof(RelicRewardLabelPatch), typeof(RelicRewardHoverTipPatch),
                     typeof(RolledPredeterminedScopePatches), typeof(PredeterminedRelicTagPatch),
                 },
+            },
+            new()
+            {
+                // Separate from reward-pickers on purpose: these brackets target PRIVATE
+                // event-handler names (the most rename-prone seam this mod touches). If a
+                // game update moves one, only the event-roll potion expansion degrades —
+                // those rewards fall back to vanilla rows; features #2/#3 stay intact
+                // (untagged rewards never consult the scope machinery).
+                Name = "event-potion-rolls",
+                Feature = "feature #2's missing half: event-rolled potion rewards open the picker over the event's pool",
+                Patches = new[] { typeof(RolledPotionScopePatches), typeof(PredeterminedPotionTagPatch) },
             },
             new()
             {

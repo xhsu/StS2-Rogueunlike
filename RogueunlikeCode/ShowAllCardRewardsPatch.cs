@@ -133,14 +133,69 @@ public static class CardRollOriginWitnessPatch
     }
 }
 
+// The shared witnessed-roll expansion recipe: given cards that all rolled out of
+// CreateForReward, produce every OTHER card those rolls could have produced, through the
+// same per-card pipeline the rolls used (fresh run card + the origin's upgrade roll).
+// Consumers: the fixed-list reward ctor below (Kaleidoscope) and the off-screen
+// choose-a-card seams in ChooseFromRollPatches. Origin lookup is all-or-nothing — one
+// unwitnessed card means a hand-built list, and hand-built lists never expand.
+// Deterministic on every client (same witness, same pools, same creation order), so
+// index-addressed MP picks stay aligned.
+internal static class WitnessedRolls
+{
+    /// <summary>The distinct roll origins of <paramref name="cards"/>; null unless every card was witnessed.</summary>
+    internal static List<CardCreationOptions>? OriginsOf(IEnumerable<CardModel?> cards)
+    {
+        var origins = new List<CardCreationOptions>();
+        foreach (CardModel? card in cards)
+        {
+            if (card == null
+                || !CardRollOriginWitnessPatch.Origins.TryGetValue(card, out CardCreationOptions? origin))
+                return null;
+            if (!origins.Contains(origin))
+                origins.Add(origin);
+        }
+        return origins.Count > 0 ? origins : null;
+    }
+
+    /// <summary>Every other C/U/R card the origins could have rolled, excluding <paramref name="offered"/>.</summary>
+    internal static List<CardModel> ExtraModels(Player player, IEnumerable<CardModel> offered,
+        List<CardCreationOptions> origins)
+    {
+        HashSet<CardModel> present = offered.Select(c => c.CanonicalInstance).ToHashSet();
+        var extras = new List<CardModel>();
+        foreach (CardCreationOptions origin in origins)
+        {
+            Rng rng = origin.RngOverride ?? player.PlayerRng.Rewards;
+            foreach (CardModel canonical in CardFactory
+                .FilterForPlayerCount(player.RunState, origin.GetPossibleCards(player))
+                .Distinct())
+            {
+                // The vanilla roll can only produce C/U/R (rarity switch), same
+                // reachability rule as feature #1's display filter.
+                if (canonical.Rarity is not (CardRarity.Common or CardRarity.Uncommon or CardRarity.Rare)
+                    || !present.Add(canonical))
+                    continue;
+                CardModel card = player.RunState.CreateCard(canonical, player);
+                if (!origin.Flags.HasFlag(CardCreationFlags.NoUpgradeRoll))
+                    CardFactory.RollForUpgrade(player, card, 0m, rng);
+                extras.Add(card);
+            }
+        }
+        return extras;
+    }
+
+    /// <summary>The origins' named pools, for compendium-context display (custom pools contribute none).</summary>
+    internal static List<CardPoolModel> PoolsOf(List<CardCreationOptions> origins) =>
+        origins.SelectMany(o => o.CardPools).Distinct().ToList();
+}
+
 // Feature #1 for FIXED-LIST card rewards (Kaleidoscope's foreign-pool picks and any kin):
 // when every offered card was witnessed rolling out of CreateForReward, the reward could
 // equally have offered any C/U/R card of those rolls' pools — so offer them all, through
 // the same per-card pipeline feature #1 uses. Hand-built lists (tutorial, scripted
 // events) are never witnessed and stay vanilla. Runs in the ctor, before Populate's
 // reward-list hooks, so hooks see the expanded list exactly like feature #1's.
-// Deterministic on every client (same witness, same pools, same creation order), so
-// index-addressed MP picks stay aligned.
 [HarmonyPatch(typeof(CardReward), MethodType.Constructor,
     typeof(IEnumerable<CardModel>), typeof(CardCreationSource), typeof(Player),
     typeof(CardCreationOptions), typeof(PlayerChoiceSynchronizer))]
@@ -153,38 +208,13 @@ public static class FixedCardRewardExpandPatch
             List<CardCreationResult> cards = __instance._cards;
             if (cards.Count == 0)
                 return;
-            var origins = new List<CardCreationOptions>();
-            foreach (CardCreationResult r in cards)
-            {
-                if (r?.Card is not CardModel card
-                    || !CardRollOriginWitnessPatch.Origins.TryGetValue(card, out CardCreationOptions? origin))
-                    return; // a hand-built card: not a roll, no pool to expand to
-                if (!origins.Contains(origin))
-                    origins.Add(origin);
-            }
-            HashSet<CardModel> present = cards.Select(r => r.Card.CanonicalInstance).ToHashSet();
-            var extras = new List<CardCreationResult>();
-            foreach (CardCreationOptions origin in origins)
-            {
-                Rng rng = origin.RngOverride ?? player.PlayerRng.Rewards;
-                foreach (CardModel canonical in CardFactory
-                    .FilterForPlayerCount(player.RunState, origin.GetPossibleCards(player))
-                    .Distinct())
-                {
-                    // The vanilla roll can only produce C/U/R (rarity switch), same
-                    // reachability rule as feature #1's display filter.
-                    if (canonical.Rarity is not (CardRarity.Common or CardRarity.Uncommon or CardRarity.Rare)
-                        || !present.Add(canonical))
-                        continue;
-                    CardModel card = player.RunState.CreateCard(canonical, player);
-                    if (!origin.Flags.HasFlag(CardCreationFlags.NoUpgradeRoll))
-                        CardFactory.RollForUpgrade(player, card, 0m, rng);
-                    extras.Add(new CardCreationResult(card));
-                }
-            }
+            List<CardCreationOptions>? origins = WitnessedRolls.OriginsOf(cards.Select(r => r?.Card));
+            if (origins == null)
+                return; // a hand-built card: not a roll, no pool to expand to
+            List<CardModel> extras = WitnessedRolls.ExtraModels(player, cards.Select(r => r.Card), origins);
             if (extras.Count == 0)
                 return;
-            cards.AddRange(extras);
+            cards.AddRange(extras.Select(c => new CardCreationResult(c)));
             MainFile.Logger.Info($"[card rewards] fixed-list reward expanded to {cards.Count} options ({origins.Count} roll origin(s))");
         }
         catch (Exception e)

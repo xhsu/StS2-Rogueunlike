@@ -201,7 +201,7 @@ public static class ShopPicker
         valid.Add(entry.CreationResult!.Card.CanonicalInstance);
 
         BeginCostPreview(entry, valid);
-        CardModel? choice = await ModShopCardPickerUi.Attach(slot, player, valid, pool).Result;
+        CardModel? choice = await ModCardPickModal.AttachToScreen(slot, player, valid, pool).Result;
         if (choice == null || !GodotObject.IsInstanceValid(slot) || !entry.IsStocked)
             return;
         if (!ModPickNet.TryBroadcastShopAssign(entry, choice.Id.Entry))

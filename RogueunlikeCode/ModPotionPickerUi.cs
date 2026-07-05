@@ -21,12 +21,13 @@ namespace Rogueunlike.RogueunlikeCode;
 
 /// <summary>
 /// "Select one potion" overlay: the vanilla Potion Lab scene repurposed as a picker,
-/// serving the reward row (feature #2) and merchant slots (feature #4). Full roster in
-/// the standard three states: pickable (this source could roll it — for rewards that is
-/// <see cref="PotionFactory.GetPotionOptions"/>, the whole stateless loot pool), locked
-/// (progression), darkened (unlocked but not a valid loot here — the lab's "not seen"
-/// tint repurposed, hover tips kept). Sections with nothing pickable are hidden.
-/// Click to select, checkmark to take, back ribbon to cancel.
+/// serving the reward row (feature #2: <see cref="PotionFactory.GetPotionOptions"/> for
+/// standard rolls, the event's own pool for scope-tagged event rolls — see the
+/// event-roll scopes in PotionRewardPickerPatch), and merchant slots (feature #4). Full roster
+/// in the standard three states: pickable (this source could roll it — the caller-passed
+/// set), locked (progression), darkened (unlocked but not a valid loot here — the lab's
+/// "not seen" tint repurposed, hover tips kept). Sections with nothing pickable are
+/// hidden. Click to select, checkmark to take, back ribbon to cancel.
 /// </summary>
 public partial class ModPotionPickerUi : Control
 {
@@ -45,15 +46,9 @@ public partial class ModPotionPickerUi : Control
     /// <summary>Resolves with the confirmed potion; null = cancelled (or torn down).</summary>
     public Task<PotionModel?> Result => _tcs.Task;
 
-    /// <summary>Shows the picker over the rewards screen. Null result = cancelled.</summary>
-    public static Task<PotionModel?> Show(Node host, Player player) =>
-        Attach(host, player, PotionFactory
-            .GetPotionOptions(player, Array.Empty<PotionModel>())
-            .ToHashSet()).Result;
-
     /// <summary>
-    /// Shows the picker with an explicit pickable set (the merchant path). Attaches to
-    /// the enclosing rewards screen / merchant room so it covers it and dies with it.
+    /// Shows the picker with the caller's pickable set. Attaches to the enclosing
+    /// rewards screen / merchant room so it covers it and dies with it.
     /// </summary>
     public static ModPotionPickerUi Attach(Node host, Player player, HashSet<PotionModel> valid)
     {
