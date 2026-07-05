@@ -51,11 +51,11 @@ Per-file map — mechanics and edge cases live in each file's header:
 | `ModUi.cs` | Shared picker shell (mount, modal dim, back ribbon, confirm), mod localization, node scavenging. Treasure mounts insert below the hand layer. |
 | `ModSearch.cs` | Card Library search-bar graft; space=AND matching. |
 | `SeenOnPickPatch.cs` | `ModSeenGate` discovery suppression, unseen-star badge, the `Mark*AsSeen` funnel patch. |
-| `ShowAllCardRewardsPatch.cs` | Feature #1, state: card rewards generate the whole valid pool through the vanilla per-card pipeline. |
+| `ShowAllCardRewardsPatch.cs` | Feature #1, state: card rewards generate the whole valid pool through the vanilla per-card pipeline. Fixed-list rewards built from witnessed internal rolls (Kaleidoscope's foreign-pool picks) expand the same way at the ctor; hand-built lists (tutorial) stay vanilla. |
 | `CardRewardScreenOverhaul.cs` | Feature #1, UI seam (≤5 options stays vanilla); per-grid visibility/sparkle/tint tables all card grids share. |
 | `ModCardGridPicker.cs` | Abstract card-picker base: grid, deck-view chrome, search, selection. |
 | `ModRewardScreenUi.cs`, `ModShopCardPickerUi.cs` | Card-picker hosts: reward screen / merchant modal. |
-| `PotionRewardPickerPatch.cs`, `RelicRewardPickerPatch.cs` | Features #2/#3: pick-then-claim on `NRewardButton.GetReward`. Predetermined rewards stay vanilla (potion side: `Populate` roll-witness; relic side: `_predeterminedRelic`). Never consume bags manually — the claim's `RelicCmd.Obtain` does. |
+| `PotionRewardPickerPatch.cs`, `RelicRewardPickerPatch.cs` | Features #2/#3: pick-then-claim on `NRewardButton.GetReward`. Predetermined rewards stay vanilla (potion side: `Populate` roll-witness; relic side: `_predeterminedRelic`) — EXCEPT roll-built predetermined relics (Toy Box, Neow's Bones), which are bracket-tagged with their roll's pool and get the picker (wax mark carried onto the pick). Never consume bags manually — the claim's `RelicCmd.Obtain` does. |
 | `ModNetMsg.cs` | Mod `INetMessage`s (`RewardPickMessage`, `ShopAssignMessage`) on the vanilla reward message stream + the channel doctrine; handlers dead while `ModWireCheck.Broken`. |
 | `ModWireCheck.cs` | `rl_wirecheck <version> <pickId> <assignId> <designateId>` run-start handshake; `SyncReady` gates every sync feature. |
 | `ModPotionPickerUi.cs`, `ModRelicPickerUi.cs` | Compendium-scene pickers (Potion Lab / Relic Collection) for rewards, treasure and shop. |

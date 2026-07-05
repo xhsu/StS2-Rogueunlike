@@ -11,6 +11,7 @@ using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Screens.RelicCollection;
 using MegaCrit.Sts2.Core.Rewards;
+using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Saves;
 using System;
 using System.Collections.Generic;
@@ -164,11 +165,39 @@ public partial class ModRelicPickerUi : Control
     private static HashSet<RelicModel> ValidDrops(Player player, RelicReward reward)
     {
         var set = new HashSet<RelicModel>();
-        foreach (RelicRarity rarity in EligibleRarities(reward))
-            if (player.RelicGrabBag._deques.TryGetValue(rarity, out List<RelicModel>? deque))
-                foreach (RelicModel relic in deque)
-                    if (relic.IsAllowed(player.RunState))
-                        set.Add(relic);
+        if (RelicRewardPicker.TryGetRollPool(reward, out List<RelicModel>? sourcePool) && sourcePool != null)
+        {
+            // A source-defined pool (Neow's Bones' option shuffle): minus what the player
+            // owns and what the SIBLING predetermined rewards will grant — the shuffle
+            // deals distinct relics, so a duplicate pair is not vanilla-reachable.
+            HashSet<ModelId> excluded = player.Relics
+                .Where(r => r != null).Select(r => r!.CanonicalInstance.Id).ToHashSet();
+            try
+            {
+                var state = RunManager.Instance.RewardsSetSynchronizer.GetRewardStateForPlayer(player);
+                if (state.rewardsStack.Count > 0)
+                    foreach (Reward other in state.rewardsStack[state.rewardsStack.Count - 1].set.Rewards)
+                        if (other != reward
+                            && other is RelicReward { _predeterminedRelic: not null } sibling
+                            && sibling._relic is RelicModel sib)
+                            excluded.Add(sib.CanonicalInstance.Id);
+            }
+            catch (Exception)
+            {
+                // set stack unavailable: the owned-filter alone still holds
+            }
+            foreach (RelicModel relic in sourcePool)
+                if (!excluded.Contains(relic.Id))
+                    set.Add(relic.CanonicalInstance); // pickable-check is reference-based
+        }
+        else
+        {
+            foreach (RelicRarity rarity in EligibleRarities(reward))
+                if (player.RelicGrabBag._deques.TryGetValue(rarity, out List<RelicModel>? deque))
+                    foreach (RelicModel relic in deque)
+                        if (relic.IsAllowed(player.RunState))
+                            set.Add(relic);
+        }
         if (reward.Relic != null)
             set.Add(reward.Relic.CanonicalInstance);
         return set;

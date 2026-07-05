@@ -1,14 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Factories;
+using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Random;
+using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace Rogueunlike.RogueunlikeCode;
@@ -104,6 +107,89 @@ public static class ShowAllCardRewardsPatch
         {
             MainFile.Logger.Error($"[card rewards] full-pool generation failed, falling back to vanilla reward: {e}");
             return true;
+        }
+    }
+}
+
+// Origin witness for the INTERNAL (non-IsCardReward) reward rolls: Kaleidoscope-style
+// effects roll cards through the same CreateForReward and hand them to CardReward's
+// fixed-list ctor. Remembering each created card's options lets that ctor recover what
+// its rolls could have produced. Vanilla returns a materialized List, so iterating the
+// result cannot re-roll anything. In-memory weak table; card instances are unique.
+[HarmonyPatch(typeof(CardFactory), nameof(CardFactory.CreateForReward),
+    typeof(Player), typeof(int), typeof(CardCreationOptions))]
+public static class CardRollOriginWitnessPatch
+{
+    internal static readonly ConditionalWeakTable<CardModel, CardCreationOptions> Origins = new();
+
+    static void Postfix(CardCreationOptions options, IEnumerable<CardCreationResult> __result)
+    {
+        if (options.Flags.HasFlag(CardCreationFlags.IsCardReward) // feature #1's own calls
+            || __result is not List<CardCreationResult> results)
+            return;
+        foreach (CardCreationResult r in results)
+            if (r?.Card is CardModel card)
+                Origins.AddOrUpdate(card, options);
+    }
+}
+
+// Feature #1 for FIXED-LIST card rewards (Kaleidoscope's foreign-pool picks and any kin):
+// when every offered card was witnessed rolling out of CreateForReward, the reward could
+// equally have offered any C/U/R card of those rolls' pools — so offer them all, through
+// the same per-card pipeline feature #1 uses. Hand-built lists (tutorial, scripted
+// events) are never witnessed and stay vanilla. Runs in the ctor, before Populate's
+// reward-list hooks, so hooks see the expanded list exactly like feature #1's.
+// Deterministic on every client (same witness, same pools, same creation order), so
+// index-addressed MP picks stay aligned.
+[HarmonyPatch(typeof(CardReward), MethodType.Constructor,
+    typeof(IEnumerable<CardModel>), typeof(CardCreationSource), typeof(Player),
+    typeof(CardCreationOptions), typeof(PlayerChoiceSynchronizer))]
+public static class FixedCardRewardExpandPatch
+{
+    static void Postfix(CardReward __instance, Player player)
+    {
+        try
+        {
+            List<CardCreationResult> cards = __instance._cards;
+            if (cards.Count == 0)
+                return;
+            var origins = new List<CardCreationOptions>();
+            foreach (CardCreationResult r in cards)
+            {
+                if (r?.Card is not CardModel card
+                    || !CardRollOriginWitnessPatch.Origins.TryGetValue(card, out CardCreationOptions? origin))
+                    return; // a hand-built card: not a roll, no pool to expand to
+                if (!origins.Contains(origin))
+                    origins.Add(origin);
+            }
+            HashSet<CardModel> present = cards.Select(r => r.Card.CanonicalInstance).ToHashSet();
+            var extras = new List<CardCreationResult>();
+            foreach (CardCreationOptions origin in origins)
+            {
+                Rng rng = origin.RngOverride ?? player.PlayerRng.Rewards;
+                foreach (CardModel canonical in CardFactory
+                    .FilterForPlayerCount(player.RunState, origin.GetPossibleCards(player))
+                    .Distinct())
+                {
+                    // The vanilla roll can only produce C/U/R (rarity switch), same
+                    // reachability rule as feature #1's display filter.
+                    if (canonical.Rarity is not (CardRarity.Common or CardRarity.Uncommon or CardRarity.Rare)
+                        || !present.Add(canonical))
+                        continue;
+                    CardModel card = player.RunState.CreateCard(canonical, player);
+                    if (!origin.Flags.HasFlag(CardCreationFlags.NoUpgradeRoll))
+                        CardFactory.RollForUpgrade(player, card, 0m, rng);
+                    extras.Add(new CardCreationResult(card));
+                }
+            }
+            if (extras.Count == 0)
+                return;
+            cards.AddRange(extras);
+            MainFile.Logger.Info($"[card rewards] fixed-list reward expanded to {cards.Count} options ({origins.Count} roll origin(s))");
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"[card rewards] fixed-list expansion failed, original list kept: {e}");
         }
     }
 }

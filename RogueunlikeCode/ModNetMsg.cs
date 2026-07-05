@@ -282,12 +282,14 @@ internal static class ModPickNet
                 return;
             }
         }
-        else if (msg.isRelic && reward is RelicReward { _predeterminedRelic: null } relicReward)
+        else if (msg.isRelic && reward is RelicReward relicReward
+            && (relicReward._predeterminedRelic == null
+                || RelicRewardPicker.IsRolledPredetermined(relicReward)))
         {
             ModelId id = new(ModelDb.GetCategory(typeof(RelicModel)), msg.itemEntry);
             if (ModelDb.GetByIdOrNull<RelicModel>(id) is { } relic)
             {
-                relicReward._relic = relic.ToMutable();
+                relicReward._relic = RelicRewardPicker.Substitute(relicReward, relic);
                 MainFile.Logger.Info($"[pick sync] player {senderId} reward relic -> {msg.itemEntry}");
                 return;
             }

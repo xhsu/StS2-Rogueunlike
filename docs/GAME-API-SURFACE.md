@@ -84,6 +84,8 @@ ride the same one); wire address = top-of-stack set id + index (mirror of `Selec
 | Target | Kind | Note |
 |---|---|---|
 | `CardFactory.CreateForReward(Player,int,CardCreationOptions)` | prefix (nameof, typed overload) | THE pool replacement. Gated on `CardCreationFlags.IsCardReward` — **assumption: only `CardReward.Populate` sets that flag** |
+| same method | postfix | Origin witness for NON-IsCardReward rolls (weak table card→options; result is a materialized List — iterating cannot re-roll) |
+| `CardReward` fixed-list ctor (typed 5-arg) | postfix | Kaleidoscope-class rewards: if every offered card was witnessed, expand `_cards` to all C/U/R of the rolls' pools via feature #1's per-card pipeline; hand-built lists (tutorial) stay vanilla. `OptionCount`/reroll untouched |
 | `NCardRewardSelectionScreen.RefreshOptions` | prefix (nameof) | UI seam; ≤5 options → vanilla fan layout |
 | `NCardRewardSelectionScreen.GetCardHolder` | prefix (nameof) | Fly-to-deck VFX redirection |
 | `NCardGrid."GetCardVisibility"` | postfix (string) | Per-grid visibility override table |
@@ -102,6 +104,8 @@ pooled-NCard healing in `ModCardGridPicker.ForceHighlight`). `"Skip"` alternativ
 | `NRewardButton.Reload` | postfix ×2 (nameof) | Row label/icon cosmetics |
 | `PotionReward."ExtraHoverTips"` / `RelicReward."ExtraHoverTips"` getters | prefix (string) | Roll-hiding tips |
 | `PotionReward.Populate` | prefix+postfix (nameof) | Roll witness: picker only for rewards `Populate` actually rolled; predetermined potions (Potion Courier etc.) stay vanilla — the relic side gets this via `_predeterminedRelic` |
+| `ToyBox.AfterObtained` / `NeowsBones.AfterObtained` | prefix+finalizer ×2 (nameof) | Roll brackets: these two build PREDETERMINED rewards from genuine rolls (bag front-pulls marked wax / a shuffle of `NeowsBones.GetValidRelics`), constructed in the async stub's first synchronous segment — rewards tagged inside get the picker (Toy Box: bag pools + wax carried onto the pick; Neow's Bones: the snapshot pool minus owned/sibling relics). Bought/scripted predetermined (FakeMerchant, tutorial) stay vanilla |
+| `RelicReward` predetermined ctor (typed 2-arg) | postfix | Tags rewards constructed inside a roll bracket |
 
 Pool mirrors: relic = `RelicGrabBag._deques[rarity]` ∩ `IsAllowed` (+rolled) — mirrors
 `RelicFactory` pulls, **deliberately ignoring dry-deque rarity escalation**; potion =

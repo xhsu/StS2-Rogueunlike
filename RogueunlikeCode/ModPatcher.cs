@@ -78,6 +78,7 @@ internal static class ModPatcher
                     typeof(ShowAllCardRewardsPatch), typeof(CardRewardScreenOverhaul),
                     typeof(CardGridVisibilityPatch), typeof(CardGridSparklePatch),
                     typeof(CardRewardGetHolderPatch),
+                    typeof(CardRollOriginWitnessPatch), typeof(FixedCardRewardExpandPatch),
                 },
             },
             new()
@@ -89,6 +90,7 @@ internal static class ModPatcher
                     typeof(PotionRewardPickPatch), typeof(PotionRewardLabelPatch), typeof(PotionRewardHoverTipPatch),
                     typeof(PotionRewardRollWitnessPatch),
                     typeof(RelicRewardPickPatch), typeof(RelicRewardLabelPatch), typeof(RelicRewardHoverTipPatch),
+                    typeof(RolledPredeterminedScopePatches), typeof(PredeterminedRelicTagPatch),
                 },
             },
             new()
