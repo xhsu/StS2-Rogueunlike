@@ -1,5 +1,6 @@
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.addons.mega_text;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -12,10 +13,15 @@ using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.CardPools;
 using MegaCrit.Sts2.Core.Nodes.Cards;
+using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes.Relics;
+using MegaCrit.Sts2.Core.Nodes.Screens.PotionLab;
+using MegaCrit.Sts2.Core.Nodes.Screens.RelicCollection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
+using MegaCrit.Sts2.Core.Random;
 using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.TestSupport;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -160,6 +166,7 @@ public static class ShopPicker
         finally
         {
             _pickerOpen = false;
+            EndCostPreview();
         }
     }
 
@@ -193,6 +200,7 @@ public static class ShopPicker
         }
         valid.Add(entry.CreationResult!.Card.CanonicalInstance);
 
+        BeginCostPreview(entry, valid);
         CardModel? choice = await ModShopCardPickerUi.Attach(slot, player, valid, pool).Result;
         if (choice == null || !GodotObject.IsInstanceValid(slot) || !entry.IsStocked)
             return;
@@ -239,6 +247,7 @@ public static class ShopPicker
                     valid.Add(relic);
         valid.Add(entry.Model.CanonicalInstance);
 
+        BeginCostPreview(entry, valid);
         RelicModel? choice = await ModRelicPickerUi.Attach(slot, player, valid).Result;
         if (choice == null || !GodotObject.IsInstanceValid(slot) || !entry.IsStocked)
             return;
@@ -278,6 +287,7 @@ public static class ShopPicker
             .ToHashSet();
         valid.Add(entry.Model!.CanonicalInstance);
 
+        BeginCostPreview(entry, valid);
         PotionModel? choice = await ModPotionPickerUi.Attach(slot, player, valid).Result;
         if (choice == null || !GodotObject.IsInstanceValid(slot) || !entry.IsStocked)
             return;
@@ -297,6 +307,153 @@ public static class ShopPicker
         entry.CalcCost();                 // ...vanilla price for the new rarity
         Assigned.TryAdd(entry, Marker);
         entry.OnMerchantInventoryUpdated();
+    }
+
+    // ---- cost preview: hovering a pickable item in an assign picker shows its price ----
+
+    // Active only between BeginCostPreview (right before a picker opens for a slot) and
+    // the AssignFlow finally — reward/chest/compendium uses of the same picker scenes
+    // never see a session and stay untouched.
+    private static MerchantEntry? _previewEntry;
+    private static HashSet<AbstractModel>? _previewValid;
+
+    private static void BeginCostPreview(MerchantEntry entry, IEnumerable<AbstractModel> valid)
+    {
+        _previewEntry = entry;
+        _previewValid = valid.ToHashSet();
+    }
+
+    private static void EndCostPreview()
+    {
+        _previewEntry = null;
+        _previewValid = null;
+    }
+
+    /// <summary>
+    /// The exact price the slot would charge if <paramref name="canonical"/> were assigned
+    /// right now, computed PURELY: base cost via the entry's own (publicized) tables, the
+    /// jitter drawn from a CLONE of the Shops rng — the very next draw the assignment's
+    /// CalcCost will consume — and the display transform via the same Hook the Cost getter
+    /// applies. Mirrors each CalcCost body (jitter ranges, sale halving, rounding).
+    /// </summary>
+    private static bool TryPreviewCost(AbstractModel? canonical, out int cost)
+    {
+        cost = 0;
+        try
+        {
+            if (canonical == null || _previewEntry is not MerchantEntry entry
+                || _previewValid is not { } valid || !valid.Contains(canonical))
+                return false;
+            Player player = entry._player;
+            Rng shops = player.PlayerRng.Shops;
+            Rng peek = new(shops.Seed, shops.Counter);
+            int raw;
+            switch (entry)
+            {
+                case MerchantCardEntry cardEntry when canonical is CardModel card:
+                    raw = Mathf.RoundToInt((float)MerchantCardEntry.GetCost(card) * peek.NextFloat(0.95f, 1.05f));
+                    if (cardEntry.IsOnSale)
+                        raw /= 2;
+                    break;
+                case MerchantRelicEntry when canonical is RelicModel relic:
+                    raw = (int)System.Math.Round((float)relic.MerchantCost * peek.NextFloat(0.85f, 1.15f));
+                    break;
+                case MerchantPotionEntry when canonical is PotionModel potion:
+                    raw = MerchantPotionEntry.GetCost(potion.Rarity);
+                    if (TestMode.IsOff)
+                        raw = (int)Mathf.Round((float)raw * peek.NextFloat(0.95f, 1.05f));
+                    break;
+                default:
+                    return false;
+            }
+            cost = (int)Hook.ModifyMerchantPrice(player.RunState, player, entry, raw);
+            return true;
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"[shop picker] cost preview failed (tip skipped): {e}");
+            return false;
+        }
+    }
+
+    private static IHoverTip[] WithCostTip(int cost, IEnumerable<IHoverTip> tips)
+    {
+        HoverTip costTip = default;
+        costTip.Id = "Rogueunlike.ShopCost";
+        costTip.Title = string.Format(ModUi.Loc("ROGUEUNLIKE.SHOP_COST.title", "{0} Gold"), cost);
+        return new IHoverTip[] { costTip }.Concat(tips).ToArray();
+    }
+
+    // Vanilla price labels turn StsColors.red when unaffordable (NMerchantCard.UpdateVisual,
+    // same Cost-vs-Gold comparison as EnoughGold). Tip titles are plain MegaLabels — no
+    // markup — so tint the cost tip's title node (the FIRST tip's) directly. Cosmetic:
+    // a reshaped tip scene simply keeps the default color.
+    private static void TintIfUnaffordable(NHoverTipSet? set, int cost)
+    {
+        try
+        {
+            if (set == null || _previewEntry is not MerchantEntry entry || cost <= entry._player.Gold)
+                return;
+            if (set.FindChild("Title", recursive: true, owned: false) is MegaLabel title)
+                title.Modulate = StsColors.red;
+        }
+        catch (Exception)
+        {
+            // cosmetic only
+        }
+    }
+
+    // Each patch rides the holder's own tip creation: compute the price first, and only
+    // then rebuild the freshly-shown set with the cost tip prepended (mirroring the
+    // vanilla alignment/follow calls). Any failure leaves the vanilla tips untouched.
+
+    [HarmonyPatch(typeof(NLabPotionHolder), "OnFocus")]
+    public static class PotionCostTipPatch
+    {
+        static void Postfix(NLabPotionHolder __instance)
+        {
+            if (__instance._potionNode?.Model is not PotionModel model
+                || !TryPreviewCost(model.CanonicalInstance, out int cost))
+                return;
+            NHoverTipSet.Remove(__instance);
+            NHoverTipSet? set = NHoverTipSet.CreateAndShow(__instance,
+                WithCostTip(cost, model.HoverTips), HoverTip.GetHoverTipAlignment(__instance));
+            set?.SetFollowOwner();
+            set?.SetExtraFollowOffset(new Vector2(32f, 0f));
+            TintIfUnaffordable(set, cost);
+        }
+    }
+
+    [HarmonyPatch(typeof(NRelicCollectionEntry), "OnFocus")]
+    public static class RelicCostTipPatch
+    {
+        static void Postfix(NRelicCollectionEntry __instance)
+        {
+            if (__instance.relic is not RelicModel model
+                || !TryPreviewCost(model.CanonicalInstance, out int cost))
+                return;
+            NHoverTipSet.Remove(__instance);
+            NHoverTipSet? set = NHoverTipSet.CreateAndShow(__instance,
+                WithCostTip(cost, model.HoverTips), HoverTip.GetHoverTipAlignment(__instance));
+            set?.SetFollowOwner();
+            TintIfUnaffordable(set, cost);
+        }
+    }
+
+    [HarmonyPatch(typeof(NCardHolder), "CreateHoverTips")]
+    public static class CardCostTipPatch
+    {
+        static void Postfix(NCardHolder __instance)
+        {
+            if (__instance.CardModel is not CardModel model
+                || !TryPreviewCost(model.CanonicalInstance, out int cost))
+                return;
+            NHoverTipSet.Remove(__instance);
+            NHoverTipSet? set = NHoverTipSet.CreateAndShow(__instance,
+                WithCostTip(cost, model.HoverTips));
+            set?.SetAlignmentForCardHolder(__instance);
+            TintIfUnaffordable(set, cost);
+        }
     }
 
     // ---- shade rendering (postfixes normalize both ways: a re-pick of the very item

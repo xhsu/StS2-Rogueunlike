@@ -119,11 +119,20 @@ belongs to the claim's `RelicCmd.Obtain` (by ModelId, every client) — never co
 | `NMerchantCard/Relic/Potion."UpdateVisual"` (+`NMerchantCard.OnInventoryOpened`) | postfix (string) | Shade rendering |
 | `NMerchantCard/Relic/Potion."CreateHoverTip"` | prefix (string) | Roll-hiding tips; assigned-slot tip re-shown via `AccessTools.Method(slot.GetType(), "CreateHoverTip")` (protected virtual → reflection) |
 | `NMerchantCard."OnPreview"` | prefix (string) | Right-click inspect would leak the roll |
+| `NLabPotionHolder."OnFocus"` / `NRelicCollectionEntry."OnFocus"` / `NCardHolder."CreateHoverTips"` | postfix ×3 (string) | Cost preview: while an assign picker is open, pickable items' tips get the exact assignment price prepended (session-gated; other uses of these scenes never see it) |
 
 Assignment mirrors each entry's vanilla stock path (`CreateCard`+`RollForUpgrade(-∞)`+
 `ModifyMerchantCardCreationResults`+`CalcCost` / `SetModel`+bag removal / `Model`+`CalcCost`) —
-`Apply*Assignment` is shared with the MP replay. Internals: `_player`, `_cardPool`, `_cardType`,
-`_cardRarity`, `CreationResult`, `Model`, `_merchantRug`, `_costLabel`, `_isHovered`, `Entry`.
+`Apply*Assignment` is shared with the MP replay. Cost preview mirrors each `CalcCost` body
+(jitter ranges card/potion 0.95–1.05, relic 0.85–1.15, card sale ÷2, rounding) with the
+jitter drawn from a CLONE of the Shops rng (`Seed`+`Counter`) — the very draw the real
+assignment consumes — then the `Cost` getter's `Hook.ModifyMerchantPrice`; base costs come
+from the entries' own publicized `GetCost` tables + `RelicModel.MerchantCost`. Internals:
+`_player`, `_cardPool`, `_cardType`, `_cardRarity`, `CreationResult`, `Model`, `_merchantRug`,
+`_costLabel`, `_isHovered`, `Entry`, `IsOnSale`, `NLabPotionHolder._potionNode`,
+`NRelicCollectionEntry.relic`, `NCardHolder.CardModel`. Unaffordable preview prices tint
+the tip's `"Title"` MegaLabel `StsColors.red` (vanilla's own unaffordable treatment;
+cosmetic — a renamed node keeps the default color).
 
 ### chest — feature #3.1
 | Target | Kind | Note |

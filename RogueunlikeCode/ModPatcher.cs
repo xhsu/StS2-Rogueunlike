@@ -102,6 +102,8 @@ internal static class ModPatcher
                     typeof(ShopPicker.CardShadePatch), typeof(ShopPicker.RelicShadePatch),
                     typeof(ShopPicker.PotionShadePatch), typeof(ShopPicker.HoverTipPatch),
                     typeof(ShopPicker.CardPreviewPatch),
+                    typeof(ShopPicker.PotionCostTipPatch), typeof(ShopPicker.RelicCostTipPatch),
+                    typeof(ShopPicker.CardCostTipPatch),
                 },
             },
             new()

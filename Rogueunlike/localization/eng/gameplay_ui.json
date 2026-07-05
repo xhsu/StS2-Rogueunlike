@@ -17,6 +17,7 @@
   "ROGUEUNLIKE.SELECT_RELIC.shop_tip": "This slot's identity is yours to choose, once: opens the Relic Collection with everything this slot could have stocked. The price follows your pick.",
   "ROGUEUNLIKE.SELECT_RELIC.tip": "Opens the Relic Collection so you can take any relic this reward could have rolled. Darkened relics cannot drop from this reward. Locked relics have not been unlocked yet.",
   "ROGUEUNLIKE.SELECT_UNKNOWN.label": "Choose Your Fate",
+  "ROGUEUNLIKE.SHOP_COST.title": "{0} Gold",
   "ROGUEUNLIKE.UNKNOWN_CHANCE.label": "{0}% chance",
   "ROGUEUNLIKE.UNKNOWN_CONDITION.label": "Requirements not met",
   "ROGUEUNLIKE.UNKNOWN_FATE.info": "Keep the vanilla roll: the room type and its contents are decided by the game's own dice.",

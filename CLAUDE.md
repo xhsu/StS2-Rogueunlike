@@ -60,7 +60,7 @@ Per-file map — mechanics and edge cases live in each file's header:
 | `ModWireCheck.cs` | `rl_wirecheck <version> <pickId> <assignId> <designateId>` run-start handshake; `SyncReady` gates every sync feature. |
 | `ModPotionPickerUi.cs`, `ModRelicPickerUi.cs` | Compendium-scene pickers (Potion Lab / Relic Collection) for rewards, treasure and shop. |
 | `TreasureChestPickerPatch.cs` | Feature #3.1: shaded table, round-based picking over the expanded shared vote list, vanilla RPS fights. The chest phase keeps reporting `SharedRelicPicking` and z-lifts hands over mid-round reward overlays — the MP hand stays the one pointer. |
-| `ShopPickerPatch.cs` | Feature #4: shade-and-assign merchant slots; assignments mirror each entry's vanilla stock path; unconditional stock-time seen-suppression (also closes a vanilla MP compendium leak). |
+| `ShopPickerPatch.cs` | Feature #4: shade-and-assign merchant slots; assignments mirror each entry's vanilla stock path; unconditional stock-time seen-suppression (also closes a vanilla MP compendium leak). Hovering a pickable item in an assign picker prepends the exact assignment price to its tips (pure: cloned Shops rng). |
 | `AncientPickerPatch.cs` | Feature #5: Ancient pick via the map-click seam; pool mirrors `GenerateRooms`; opens only on a real (probe-measured) choice. Run-start acts auto-enter with no click — that's #5.2's job. Also hosts the map-input gate (stuck-drag guard). |
 | `AncientPickSyncCmd.cs` | Feature #5 MP: `rl_ancient <id> [slot:identity…]` console cmd + assertion-loud `BeginEvent` call-site transpiler substitution. |
 | `AncientOptionsPatch.cs` | Feature #5.1: empirical per-slot option probe (modifier hooks stubbed while probing; `HasVariation` = any pool ≥2) + post-roll slot substitution. |
