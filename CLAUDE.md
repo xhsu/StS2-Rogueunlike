@@ -68,7 +68,7 @@ Per-file map — mechanics and edge cases live in each file's header:
 | `ModAncientPickerUi.cs` | "Select an Ancient" modal (map + act-start event): roster rows, per-slot designation panel, vanilla roll pre-selected. |
 | `UnknownPickerPatch.cs` | Feature #6: ? node category+content. Category forced by feeding a roll VALUE into the vanilla `Roll` body (transpiler); content swapped into the pull cursor slot. First-ever run stays vanilla; Shop/Treasure are category-only. |
 | `UnknownPickSyncCmd.cs` | Feature #6 MP: `rl_unknown <col> <row> <fate\|category> [modelEntry]` votes + plurality tally at `EnterMapCoord` (earliest-vote tiebreak; non-voters = fate). |
-| `ModUnknownPickerUi.cs` | "Choose Your Fate" modal: category rows with live chances, content list, MP vote strip. |
+| `ModUnknownPickerUi.cs` | "Choose Your Fate" modal: category rows with live chances, searchable content list, MP vote strip. |
 
 ## Modding Conventions
 

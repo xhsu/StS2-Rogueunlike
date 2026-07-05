@@ -33,6 +33,8 @@ namespace Rogueunlike.RogueunlikeCode;
 ///     via vanilla's own history-driven marking);
 ///   • Fate/Treasure/Merchant: a short explainer (chest and shop contents are already
 ///     full picks in-room via features #3.1/#4).
+/// A search bar atop the content panel filters the list rows by title — results are
+/// pickable-only (user rule, 2026-07-03); the query persists across category switches.
 /// In multiplayer a live strip shows every player's current vote; plurality wins, ties
 /// break to the earliest vote (see UnknownPickSync). Checkmark confirms, back cancels.
 /// </summary>
@@ -47,6 +49,7 @@ public partial class ModUnknownPickerUi : Control
     private const float PanelPad = 20f;
     private const float GroupHeight = 720f;
     private const float ContentRowHeight = 56f;
+    private const float SearchGap = 16f; // search bar bottom → content list top
 
     private static readonly Color RowBg = new(0f, 0f, 0f, 0.35f);
     private static readonly Color RowBgHover = new(1f, 1f, 1f, 0.12f);
@@ -56,7 +59,7 @@ public partial class ModUnknownPickerUi : Control
     private readonly TaskCompletionSource<UnknownPickResult?> _tcs = new();
     private readonly Dictionary<RoomType, (Control row, ColorRect bg, Label name, bool pickable)> _catRows = new();
     private readonly Dictionary<RoomType, AbstractModel?> _contentChoice = new();
-    private readonly List<(AbstractModel model, PanelContainer panel, Label title, bool pickable)> _contentRows = new();
+    private readonly List<(AbstractModel model, PanelContainer panel, Label title, bool pickable, string search)> _contentRows = new();
 
     private RunState _state = null!;
     private MapCoord _coord;
@@ -69,6 +72,8 @@ public partial class ModUnknownPickerUi : Control
     private ScrollContainer _contentScroll = null!;
     private VBoxContainer _contentList = null!;
     private MegaRichTextLabel _contentInfo = null!;
+    private NSearchBar? _searchBar;
+    private string _query = "";
     private Label _votesLabel = null!;
 
     /// <summary>Resolves with the confirmed vote; null = cancelled (or torn down).</summary>
@@ -353,6 +358,26 @@ public partial class ModUnknownPickerUi : Control
         _contentInfo.OffsetRight = -PanelPad;
         _contentInfo.OffsetTop = PanelPad;
         _contentInfo.OffsetBottom = -PanelPad;
+
+        // Search bar pinned atop the panel (the Card Library widget, as everywhere else);
+        // the scrolling list starts below it. Shown only with a content list — explainer
+        // categories have nothing to filter.
+        try
+        {
+            _searchBar = ModSearch.CreateBar(panel);
+            if (_searchBar != null)
+            {
+                ModSearch.PlaceCentered(_searchBar, PanelPad);
+                _contentScroll.OffsetTop = PanelPad + _searchBar.CustomMinimumSize.Y + SearchGap;
+                _searchBar.Connect(NSearchBar.SignalName.QueryChanged, Callable.From<string>(OnQueryChanged));
+                _searchBar.Visible = false;
+            }
+        }
+        catch (System.Exception e)
+        {
+            _searchBar = null;
+            MainFile.Logger.Error($"[search] unknown-picker bar failed (picker still works without it): {e}");
+        }
     }
 
     private void ShowExplainer(string text)
@@ -360,6 +385,8 @@ public partial class ModUnknownPickerUi : Control
         _contentScroll.Visible = false;
         _contentInfo.Visible = true;
         _contentInfo.Text = text;
+        if (_searchBar != null)
+            _searchBar.Visible = false;
     }
 
     private void ClearContentList()
@@ -369,6 +396,8 @@ public partial class ModUnknownPickerUi : Control
         _contentRows.Clear();
         _contentScroll.Visible = true;
         _contentInfo.Visible = false;
+        if (_searchBar != null)
+            _searchBar.Visible = true;
     }
 
     private void ShowEncounterList(RoomType type)
@@ -391,6 +420,7 @@ public partial class ModUnknownPickerUi : Control
             AddContentRow(encounter, TitleOf(encounter), pickable: false,
                 reason: ModUi.Loc("ROGUEUNLIKE.UNKNOWN_NOT_HERE.label", "Cannot occur here"),
                 star: !_state.UnlockState.HasSeenEncounter(encounter));
+        ApplyFilter();
         RefreshContentStyles();
     }
 
@@ -419,7 +449,31 @@ public partial class ModUnknownPickerUi : Control
         }
         foreach (EventModel ev in locked)
             AddContentRow(ev, LockedTitle(), pickable: false, reason: "", star: false);
+        ApplyFilter();
         RefreshContentStyles();
+    }
+
+    // Search results are pickable-only — searching means looking for something to PICK;
+    // the darkened/locked context rows only clutter results (user rule, 2026-07-03).
+    private void OnQueryChanged(string query)
+    {
+        _query = ModSearch.Canon(query);
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        foreach ((_, PanelContainer panel, _, bool pickable, string search) in _contentRows)
+            panel.Visible = _query.Length == 0 || (pickable && ModSearch.Matches(search, _query));
+        // The filter hid the pending pick: unpick it — never confirm something invisible.
+        if (_pendingCategory is RoomType cat
+            && _contentChoice.GetValueOrDefault(cat) is AbstractModel chosen
+            && _contentRows.Any(r => r.model == chosen && !r.panel.Visible))
+        {
+            _contentChoice[cat] = null;
+            RefreshContentStyles();
+            RefreshConfirm();
+        }
     }
 
     private void AddContentRow(AbstractModel model, string title, bool pickable, string reason, bool star)
@@ -467,7 +521,7 @@ public partial class ModUnknownPickerUi : Control
         }
 
         _contentList.AddChildSafely(entry);
-        _contentRows.Add((model, entry, titleLabel, pickable));
+        _contentRows.Add((model, entry, titleLabel, pickable, ModSearch.Canon(title)));
     }
 
     private void RefreshContentStyles()
@@ -475,7 +529,7 @@ public partial class ModUnknownPickerUi : Control
         AbstractModel? chosen = _pendingCategory is RoomType cat
             ? _contentChoice.GetValueOrDefault(cat)
             : null;
-        foreach ((AbstractModel model, PanelContainer panel, Label title, bool pickable) in _contentRows)
+        foreach ((AbstractModel model, PanelContainer panel, Label title, bool pickable, _) in _contentRows)
         {
             bool selected = chosen != null && chosen == model;
             var style = new StyleBoxFlat
