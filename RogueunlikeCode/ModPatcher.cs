@@ -96,14 +96,15 @@ internal static class ModPatcher
             },
             new()
             {
-                // Separate from reward-pickers on purpose: these brackets target PRIVATE
-                // event-handler names (the most rename-prone seam this mod touches). If a
-                // game update moves one, only the event-roll potion expansion degrades —
-                // those rewards fall back to vanilla rows; features #2/#3 stay intact
-                // (untagged rewards never consult the scope machinery).
+                // Separate from reward-pickers on purpose: these transpilers target
+                // PRIVATE event-handler bodies (the most rename-prone seam this mod
+                // touches; they also throw when the body loses its `newobj
+                // PotionReward`). If a game update moves one, only the event-roll potion
+                // expansion degrades — those rewards fall back to vanilla rows; features
+                // #2/#3 stay intact (untagged rewards never consult the scope table).
                 Name = "event-potion-rolls",
                 Feature = "feature #2's missing half: event-rolled potion rewards open the picker over the event's pool",
-                Patches = new[] { typeof(RolledPotionScopePatches), typeof(PredeterminedPotionTagPatch) },
+                Patches = new[] { typeof(RolledPotionTagTranspilers) },
             },
             new()
             {

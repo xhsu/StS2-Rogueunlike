@@ -116,11 +116,20 @@ Pool mirrors: relic = `RelicGrabBag._deques[rarity]` ∩ `IsAllowed` (+rolled) �
 for Populate-rolled rewards, hence the roll witness). Bag consumption
 belongs to the claim's `RelicCmd.Obtain` (by ModelId, every client) — never consume manually.
 
-### event-potion-rolls — feature #2's missing half (gap closed in v0.6.0; own group: handler names are the most rename-prone seam here)
+### event-potion-rolls — feature #2's missing half (gap closed in v0.6.0; tag mechanism replaced in v0.6.1; own group: handler names are the most rename-prone seam here)
 | Target | Kind | Note |
 |---|---|---|
-| `PotionCourier."Ransack"`, `Wellspring."Bottle"`, `TheLegendsWereTrue."SlowlyFindAnExit"`, `BattlewornDummy."Resume"`, `EndlessConveyor."SuspiciousCondiment"` | prefix+finalizer ×5 (string, **`MethodType.Async`**) | Roll-scope brackets at MoveNext level: the scope is open during every resumption slice, so rolls that sit AFTER an await (Legends' damage, Dummy's post-combat Resume) still land inside it — a stub-level pair would close at the first suspension. Failure of this group degrades only these events' potion rewards to vanilla rows |
-| `PotionReward` predetermined ctor (typed 2-arg `(PotionModel, Player)`) | postfix | Tags rewards constructed inside a bracket with the bracket's pool filter (Ransack: Uncommon; others: full character+shared unlocked set). Fixed-potion rewards (Foul Potion, Glowwater) construct outside any bracket — vanilla |
+| `PotionCourier."Ransack"`, `Wellspring."Bottle"`, `TheLegendsWereTrue."SlowlyFindAnExit"`, `BattlewornDummy."Resume"`, `EndlessConveyor."SuspiciousCondiment"` | transpiler ×5 (string, **`MethodType.Async`**) | Tag-injection into each handler's MoveNext IL: after every `newobj PotionReward(PotionModel, Player)` → `dup; ldc.i4 <kind>; call TagRolledFromEvent` (Ransack: Uncommon; others: full character+shared unlocked set). Position-independent, so rolls AFTER an await (Legends' damage, Dummy's post-combat Resume) are covered. Throws at patch time if a handler body loses that `newobj` → whole-group rollback → these events' potion rewards degrade to vanilla rows. Fixed-potion rewards (Foul Potion, Glowwater) construct in un-transpiled methods — vanilla |
+
+v0.6.1 lesson (why not a ctor postfix): the v0.6.0 design (MoveNext scope brackets + a
+postfix on the 2-arg `PotionReward` ctor) never tagged anything in the field — Harmony
+compiles a patched MoveNext as a full-opt DynamicMethod and the JIT **inlines the tiny
+ctor into it, bypassing the ctor's detour** (verified in a standalone rig on the game's
+0Harmony + .NET 9 Release; `NoInlining` on the ctor fixed the rig). Never hang a feature
+on prefix/postfix of a small inlinable method whose call sites live inside bodies this
+mod also patches. The relic-side ctor postfix (reward-pickers group) survives only
+because `ToyBox`/`NeowsBones.AfterObtained` MoveNexts are UNPATCHED tier-0 game code —
+if those ever get patched, port this transpiler pattern there too.
 
 Pool mirror: `PotionRewardPicker.EventPool` ↔ the five handlers' shared LINQ
 (`Character.PotionPool.GetUnlockedPotions ∪ SharedPotionPool.GetUnlockedPotions`, Ransack
@@ -253,7 +262,7 @@ mirrored is read-only or pool-derivation logic:
 | Asset | Provides | On failure |
 |---|---|---|
 | `screens/card_selection/simple_card_select_screen` | `NCardGrid`, `NConfirmButton` | Card pickers fall back to vanilla; other pickers lose confirm → whole picker aborts → callers fall back to vanilla |
-| `screens/deck_view_screen` | Sort bar, upgrades tickbox, bottom label, back button | Chrome-less picker (each piece degrades independently) |
+| `screens/deck_view_screen` | Sort bar, upgrades tickbox, bottom label, back button | Chrome-less picker (each piece degrades independently). Hue semantics: chips + frame mats share `hsv.gdshader` (h/s/v); `NCardViewSortButton.SetHue` copies ONLY `h`, and hueless pool mats (colorless: h=1.0=red, s=0 — the gray IS the zero saturation) render red through it. WireSort swaps the chip's `%ButtonImage` material for a Duplicate of the pool mat instead when the source's s≈0 (v0.6.1) |
 | `screens/card_library/card_library` | `NSearchBar` (+`"ClearButton"` child by name) | No search; picker works |
 | `relic_collection` / `potion_lab` scenes (via `NRelicCollection.Create()` / `NPotionLab.Create()`) | Whole picker body | Picker throws → callers fall back to vanilla reward/slot |
 | `res://images/packed/sprite_fonts/star_icon.png` | Unseen star badge | No badge |

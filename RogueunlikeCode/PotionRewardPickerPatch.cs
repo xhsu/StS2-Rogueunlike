@@ -15,6 +15,8 @@ using MegaCrit.Sts2.Core.Rewards;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
@@ -44,12 +46,12 @@ public static class PotionRewardPicker
     // Five vanilla sources roll a potion with PlayerRng.Rewards.NextItem over the
     // character+shared unlocked set (Potion Courier's Ransack filters to Uncommon) and
     // wrap the result as a PREDETERMINED PotionReward — a roll the standard witness
-    // above can't see. Their handlers are bracketed (RolledPotionScopePatches) and every
-    // predetermined PotionReward constructed inside a bracket is tagged with the
-    // bracket's pool filter; the picker then offers exactly that pool. Fixed-potion
-    // rewards (Foul Potion, Glowwater) construct outside any bracket and stay vanilla.
-    // In-memory only; tags exist identically on every client (event handlers run
-    // everywhere in lockstep, like the reward replicas they build).
+    // above can't see. Each handler's MoveNext gets a tag call INJECTED into its IL
+    // right after the `newobj PotionReward` (RolledPotionTagTranspilers); the picker
+    // then offers exactly that handler's pool. Fixed-potion rewards (Foul Potion,
+    // Glowwater) construct in un-transpiled methods and stay vanilla. In-memory only;
+    // tags exist identically on every client (event handlers run everywhere in
+    // lockstep, like the reward replicas they build).
     internal sealed class EventRollScope
     {
         public PotionRarity? Rarity; // null = the full character+shared unlocked set
@@ -57,13 +59,12 @@ public static class PotionRewardPicker
 
     private static readonly ConditionalWeakTable<PotionReward, EventRollScope> ScopeTagged = new();
 
-    internal static EventRollScope? CurrentScope;
+    internal static readonly EventRollScope FullPool = new();
+    internal static readonly EventRollScope UncommonPool = new() { Rarity = PotionRarity.Uncommon };
 
-    internal static void TagIfInScope(PotionReward reward)
-    {
-        if (CurrentScope is { } scope)
-            ScopeTagged.AddOrUpdate(reward, scope);
-    }
+    /// <summary>Target of the injected IL (see RolledPotionTagTranspilers). Public: called from patched game bodies.</summary>
+    public static void TagRolledFromEvent(PotionReward reward, int rarityKind) =>
+        ScopeTagged.AddOrUpdate(reward, rarityKind == 1 ? UncommonPool : FullPool);
 
     internal static bool TryGetScope(PotionReward reward, out EventRollScope? scope) =>
         ScopeTagged.TryGetValue(reward, out scope);
@@ -87,55 +88,61 @@ public static class PotionRewardPicker
             || ModPickNet.TryResolveWireAddress(potionReward, out _, out _));
 }
 
-// The event-handler brackets, MoveNext-level (MethodType.Async): the scope opens on
-// every resumption slice of the handler and closes when the slice yields (finalizer, so
-// throws close it too) — the reward ctor lands in one of those slices no matter how many
-// awaits precede the roll (The Legends Were True rolls after a damage await; Battleworn
-// Dummy rolls in its post-combat Resume). A stub-level pair would close at the first
-// suspension and miss those. Anything constructed by code CALLED within a slice is
-// event-owned by definition — vanilla builds these reward lists inline in the handler.
+// The tag: IL injected into the five handlers' MoveNext bodies (MethodType.Async), right
+// after every `newobj PotionReward(PotionModel, Player)`: dup; ldc.i4 <kind>; call
+// TagRolledFromEvent. The call sits in the CALLER's IL, so it cannot be lost to callee
+// inlining — a ctor POSTFIX demonstrably was: Harmony compiles patched bodies as
+// full-opt DynamicMethods, and the JIT inlined the three-statement PotionReward ctor
+// straight past its detour, so the v0.6.0 bracket design (scope prefix/finalizer +
+// ctor postfix) tagged nothing (field report 2026-07-06, The Legends Were True;
+// reproduced in a standalone rig against the game's own 0Harmony/.NET 9 Release).
+// Injection is position-independent, so rolls after an await (Legends, Dummy's
+// post-combat Resume) are covered for free. A reshaped handler degrades LOUD: no
+// matching newobj → patch-time throw → whole-group rollback → vanilla rows.
 [HarmonyPatch]
-public static class RolledPotionScopePatches
+public static class RolledPotionTagTranspilers
 {
-    private static readonly PotionRewardPicker.EventRollScope UncommonPool = new() { Rarity = PotionRarity.Uncommon };
-    private static readonly PotionRewardPicker.EventRollScope FullPool = new();
+    private const int Full = 0, Uncommon = 1;
 
-    [HarmonyPrefix, HarmonyPatch(typeof(PotionCourier), "Ransack", MethodType.Async)]
-    static void RansackBegin() => PotionRewardPicker.CurrentScope = UncommonPool;
+    [HarmonyTranspiler, HarmonyPatch(typeof(PotionCourier), "Ransack", MethodType.Async)]
+    static IEnumerable<CodeInstruction> Ransack(IEnumerable<CodeInstruction> il) => Inject(il, Uncommon);
 
-    [HarmonyFinalizer, HarmonyPatch(typeof(PotionCourier), "Ransack", MethodType.Async)]
-    static void RansackEnd() => PotionRewardPicker.CurrentScope = null;
+    [HarmonyTranspiler, HarmonyPatch(typeof(Wellspring), "Bottle", MethodType.Async)]
+    static IEnumerable<CodeInstruction> Bottle(IEnumerable<CodeInstruction> il) => Inject(il, Full);
 
-    [HarmonyPrefix, HarmonyPatch(typeof(Wellspring), "Bottle", MethodType.Async)]
-    static void BottleBegin() => PotionRewardPicker.CurrentScope = FullPool;
+    [HarmonyTranspiler, HarmonyPatch(typeof(TheLegendsWereTrue), "SlowlyFindAnExit", MethodType.Async)]
+    static IEnumerable<CodeInstruction> Legends(IEnumerable<CodeInstruction> il) => Inject(il, Full);
 
-    [HarmonyFinalizer, HarmonyPatch(typeof(Wellspring), "Bottle", MethodType.Async)]
-    static void BottleEnd() => PotionRewardPicker.CurrentScope = null;
+    [HarmonyTranspiler, HarmonyPatch(typeof(BattlewornDummy), "Resume", MethodType.Async)]
+    static IEnumerable<CodeInstruction> Dummy(IEnumerable<CodeInstruction> il) => Inject(il, Full);
 
-    [HarmonyPrefix, HarmonyPatch(typeof(TheLegendsWereTrue), "SlowlyFindAnExit", MethodType.Async)]
-    static void LegendsBegin() => PotionRewardPicker.CurrentScope = FullPool;
+    [HarmonyTranspiler, HarmonyPatch(typeof(EndlessConveyor), "SuspiciousCondiment", MethodType.Async)]
+    static IEnumerable<CodeInstruction> Condiment(IEnumerable<CodeInstruction> il) => Inject(il, Full);
 
-    [HarmonyFinalizer, HarmonyPatch(typeof(TheLegendsWereTrue), "SlowlyFindAnExit", MethodType.Async)]
-    static void LegendsEnd() => PotionRewardPicker.CurrentScope = null;
-
-    [HarmonyPrefix, HarmonyPatch(typeof(BattlewornDummy), "Resume", MethodType.Async)]
-    static void DummyBegin() => PotionRewardPicker.CurrentScope = FullPool;
-
-    [HarmonyFinalizer, HarmonyPatch(typeof(BattlewornDummy), "Resume", MethodType.Async)]
-    static void DummyEnd() => PotionRewardPicker.CurrentScope = null;
-
-    [HarmonyPrefix, HarmonyPatch(typeof(EndlessConveyor), "SuspiciousCondiment", MethodType.Async)]
-    static void CondimentBegin() => PotionRewardPicker.CurrentScope = FullPool;
-
-    [HarmonyFinalizer, HarmonyPatch(typeof(EndlessConveyor), "SuspiciousCondiment", MethodType.Async)]
-    static void CondimentEnd() => PotionRewardPicker.CurrentScope = null;
-}
-
-// Tag every predetermined reward constructed inside a roll bracket.
-[HarmonyPatch(typeof(PotionReward), MethodType.Constructor, typeof(PotionModel), typeof(Player))]
-public static class PredeterminedPotionTagPatch
-{
-    static void Postfix(PotionReward __instance) => PotionRewardPicker.TagIfInScope(__instance);
+    private static List<CodeInstruction> Inject(IEnumerable<CodeInstruction> il, int rarityKind)
+    {
+        ConstructorInfo ctor = AccessTools.DeclaredConstructor(
+                typeof(PotionReward), new[] { typeof(PotionModel), typeof(Player) })
+            ?? throw new InvalidOperationException("PotionReward(PotionModel, Player) ctor not found");
+        var result = new List<CodeInstruction>();
+        int injected = 0;
+        foreach (CodeInstruction ins in il)
+        {
+            result.Add(ins);
+            if (ins.opcode == OpCodes.Newobj && Equals(ins.operand, ctor))
+            {
+                result.Add(new CodeInstruction(OpCodes.Dup));
+                result.Add(new CodeInstruction(OpCodes.Ldc_I4, rarityKind));
+                result.Add(CodeInstruction.Call(typeof(PotionRewardPicker),
+                    nameof(PotionRewardPicker.TagRolledFromEvent)));
+                injected++;
+            }
+        }
+        if (injected == 0)
+            throw new InvalidOperationException(
+                "no `newobj PotionReward(PotionModel, Player)` in the handler body — event reshaped by a game update");
+        return result;
+    }
 }
 
 // The roll witness: PotionReward.Populate rolls ⟺ Potion was null at entry

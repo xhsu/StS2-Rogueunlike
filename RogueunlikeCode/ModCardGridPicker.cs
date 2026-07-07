@@ -405,7 +405,20 @@ public abstract partial class ModCardGridPicker : Control
     {
         s.SetLabel(label);
         if (frame != null)
-            s.SetHue(frame);
+        {
+            // Hueless pool materials (colorless: h=1, s=0 — the gray IS the zero
+            // saturation) must not go through SetHue: it copies ONLY h onto the chip,
+            // whose own s≈0.8 renders h=1 as plain red (field report 2026-07-06; vanilla
+            // never trips this — the deck view only ever passes saturated character
+            // hues). Swap the chip's material for a copy of the pool's instead: renders
+            // gray, and the button's hover tweens keep driving the now-orphaned
+            // original, so there is no re-saturation flash either.
+            if (frame.GetShaderParameter("s").AsSingle() <= 0.001f
+                && s.GetNodeOrNull<Control>("%ButtonImage") is { } chip)
+                chip.Material = (Material)frame.Duplicate();
+            else
+                s.SetHue(frame);
+        }
         s.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => Sort(s, asc, desc)));
     }
 
